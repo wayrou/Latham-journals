@@ -15,7 +15,7 @@ export const inboxData: InboxMessage[] = [
         date: '3555-10-14 09:00',
         content: `Alright, we’ve granted you access to all the Latham stuff. Your terminal will now have access to all the surviving available remnants of what we’re calling “Project Solaris”- it was all recovered from Separation-era junk. 
 
-Most of the records are fragmented, redacted or encrypted with some kind of proprietary cipher. What we’re asking you to do is put a full timeline together and try to decrypt everything you can.
+Most of the records are fragmented, redacted or encrypted with some kind of proprietary cipher. What we’re asking you to do is put a full archive together and try to decrypt everything you can.
 
 Thanks!
 -Alan`,

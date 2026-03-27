@@ -5,7 +5,7 @@ interface BootSequenceProps {
 }
 
 const BOOT_LOGS = [
-    "INITIALIZING PGNOS CORE MODULES...",
+    "INITIALIZING PRGN_OS CORE MODULES...",
     "LOADING VIRTUAL ENVIRONMENT...",
     "[OK] KERNEL v4.2.1 LOADED",
     "[OK] MOUNTING DRIVE /dev/sda1",
@@ -19,7 +19,7 @@ const BOOT_LOGS = [
     "MEMORY CHECK [====================] 100%",
     "RUNNING STARTUP DAEMONS...",
     "STARTING INTERFACE SERVICES...",
-    "PGNOS TERMINAL READY."
+    "PRGN_OS TERMINAL READY."
 ];
 
 const BootSequence: React.FC<BootSequenceProps> = ({ onComplete }) => {

@@ -59,7 +59,7 @@ const Home: React.FC = () => {
                 {archiveRestoration === 0 ? (
                     <>
                         <p style={{ fontStyle: 'italic', color: 'var(--color-primary-dim)', width: '80%' }}>
-                            [SYSTEM] WELCOME TO PGNOS SECURE TERMINAL.<br /><br />
+                            [SYSTEM] WELCOME TO PRGN_OS SECURE TERMINAL.<br /><br />
                             NEW MESSAGES DETECTED IN INBOX.<br />
                             PLEASE REVIEW COMMUNICATIONS BEFORE PROCEEDING WITH RESTORATION OPERATIONS.
                         </p>
@@ -67,7 +67,7 @@ const Home: React.FC = () => {
                 ) : (
                     <>
                         <h3 style={{ borderBottom: '1px solid var(--color-primary-dim)', paddingBottom: '0.5rem', marginBottom: '1rem', width: '80%' }}>
-                            PGNOS ACTIVE SESSION REPORT
+                            PRGN_OS ACTIVE SESSION REPORT
                         </h3>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontFamily: 'var(--font-mono)', width: '80%' }}>
                             <div>

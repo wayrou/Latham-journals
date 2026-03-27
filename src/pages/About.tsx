@@ -18,7 +18,7 @@ const About: React.FC = () => {
                     In 3555, the Archival Recovery Team successfully restored this partial mirror of the Latham family workstation node. Many files remain encrypted or corrupted due to the Great Woe of 2076 and subsequent centuries of neglect before the Great Forgetting.
                 </p>
                 <p style={{ color: 'var(--color-accent)', fontWeight: 'bold' }}>
-                    By engaging with this system, you acknowledge the psychological risks associated with chronodynamic data reconstruction.
+                    By engaging with this system, you acknowledge the psychological risks associated with chronodynamic data recovery.
                 </p>
             </div>
         </div>

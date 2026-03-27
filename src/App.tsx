@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Archive from './pages/Archive';
-import Timeline from './pages/Timeline';
 import TerminalPage from './pages/TerminalPage';
 import Inbox from './pages/Inbox';
 import Dungeon from './pages/Dungeon';
@@ -29,7 +28,6 @@ const RootApp: React.FC = () => {
           <Route index element={<TerminalPage />} />
           <Route path="archive" element={<Archive />} />
           <Route path="inbox" element={<Inbox />} />
-          <Route path="timeline" element={<Timeline />} />
           <Route path="dungeon" element={<Dungeon />} />
           <Route path="terminal" element={<TerminalPage />} />
           <Route path="*" element={<TerminalPage />} />
@@ -39,10 +37,14 @@ const RootApp: React.FC = () => {
   );
 };
 
+import { DungeonProvider } from './context/DungeonContext';
+
 const App: React.FC = () => {
   return (
     <GameStateProvider>
-      <RootApp />
+      <DungeonProvider>
+        <RootApp />
+      </DungeonProvider>
     </GameStateProvider>
   );
 };

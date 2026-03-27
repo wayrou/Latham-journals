@@ -20,7 +20,7 @@ const TerminalApp: React.FC = () => {
     const [hackingGame, setHackingGame] = useState<HackingGame | null>(null);
     const [hackingLogs, setHackingLogs] = useState<string[]>([]);
     const [history, setHistory] = useState<LogEntry[]>([
-        { type: 'system', content: 'PGNOS SECURE TERMINAL v4.2.1 CONNECTED.' },
+        { type: 'system', content: 'PRGN_OS SECURE TERMINAL v4.2.1 CONNECTED.' },
         { type: 'system', content: 'ENTER COMMAND OR "help" FOR SYSTEM ASSISTANCE.' }
     ]);
     const endRef = useRef<HTMLDivElement>(null);
@@ -65,7 +65,6 @@ const TerminalApp: React.FC = () => {
                         <div>- <strong>clearance</strong>: Check current clearance level</div>
                         <div>ADVANCED COMMANDS:</div>
                         <div>- <strong>unlock [filename] [password]</strong>: Decrypt password-locked files</div>
-                        <div>- <strong>reconstruct [filename] [word1] [word2]...</strong>: Fill redacted phrases sequentially</div>
                         <div>- <strong>xref [file1] [file2]</strong>: Cross-reference data between two files</div>
                         <div>- <strong>decrypt [filename] [shift_key]</strong>: Run cipher breakdown algorithm</div>
                         <div>V2 OPERATIONS:</div>
@@ -155,48 +154,6 @@ const TerminalApp: React.FC = () => {
                 }
                 break;
 
-            case 'reconstruct':
-                if (args.length < 3) {
-                    print('Usage: reconstruct [filename] [word1] [word2]...', 'error');
-                    break;
-                }
-                const reconFileTarget = args[1];
-                const attemptTerms = args.slice(2).map(t => t.toLowerCase());
-
-                const docToRecon = storyData.find(d => d.name === reconFileTarget || d.id === reconFileTarget);
-
-                if (!docToRecon || !isFileAccessible(docToRecon.id)) {
-                    print(`File not found: ${reconFileTarget}`, 'error');
-                    break;
-                }
-
-                if (docToRecon.type !== 'redacted' || !docToRecon.missingTerms) {
-                    print(`File ${reconFileTarget} cannot be reconstructed.`, 'error');
-                    break;
-                }
-
-                // Check if words match exactly
-                let match = true;
-                if (docToRecon.missingTerms.length !== attemptTerms.length) {
-                    match = false;
-                } else {
-                    for (let i = 0; i < attemptTerms.length; i++) {
-                        if (docToRecon.missingTerms[i] !== attemptTerms[i]) {
-                            match = false;
-                            break;
-                        }
-                    }
-                }
-
-                if (match) {
-                    unlockFile(docToRecon.id);
-                    markFileAsRead(docToRecon.id);
-                    addRestoration(10);
-                    print(`RECONSTRUCTION SUCCESSFUL: ${reconFileTarget}\n\n${docToRecon.secretContent}`, 'system');
-                } else {
-                    print('RECONSTRUCTION FAILED. TERM MISMATCH OR INCORRECT SEQUENCE.', 'error');
-                }
-                break;
 
             case 'xref':
                 if (args.length < 3) {
@@ -282,7 +239,7 @@ const TerminalApp: React.FC = () => {
 
             case 'vendor':
                 if (args.length === 1) {
-                    print(`--- PGNOS FRAGMENT EXCHANGE ---`);
+                    print(`--- PRGN_OS FRAGMENT EXCHANGE ---`);
                     print(`CURRENT BALANCE: ${fragments} FRAGMENTS`);
                     print(`\nAVAILABLE UPGRADES:`);
                     print(`1. [DAMAGE] : Stabilize strike vectors (+1 Base Dmg) - Cost: 50 FRAG`);

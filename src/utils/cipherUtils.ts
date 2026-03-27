@@ -1,5 +1,5 @@
 /**
- * Cipher utilities for PGNOS terminal decryption puzzles.
+ * Cipher utilities for PRGN_OS terminal decryption puzzles.
  * Supports: Shift (Caesar), Vigenère, and Latham (custom) ciphers.
  */
 

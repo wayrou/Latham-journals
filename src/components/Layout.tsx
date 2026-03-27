@@ -3,6 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useGameState } from '../context/GameStateContext';
 import { Volume2, VolumeX } from 'lucide-react';
 import SystemAlertModal from './SystemAlertModal';
+import PinnedDungeon from './PinnedDungeon';
 import { useSound } from '../hooks/useSound';
 
 const Layout: React.FC = () => {
@@ -14,7 +15,6 @@ const Layout: React.FC = () => {
     const navLinks = [
         { name: 'INBOX', path: '/inbox' },
         { name: 'ARCHIVE', path: '/archive' },
-        { name: 'TIMELINE', path: '/timeline' },
         { name: 'BREACH', path: '/dungeon' },
         { name: 'TERMINAL', path: '/terminal' },
     ];
@@ -22,6 +22,7 @@ const Layout: React.FC = () => {
     return (
         <div className="container" style={{ position: 'relative' }}>
             <div style={{ position: 'absolute', top: 10, right: 10, fontSize: '0.7rem', color: 'var(--color-primary-dim)', pointerEvents: 'none', zIndex: 10 }}>ARCHIVE_V2_ACTIVE</div>
+            <PinnedDungeon />
 
             <div style={{ position: 'absolute', top: 10, left: 10, fontSize: '0.7rem', color: 'var(--color-primary)', zIndex: 10, display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div>ARCHIVE RESTORATION: {Math.floor(archiveRestoration)}%</div>
@@ -33,17 +34,17 @@ const Layout: React.FC = () => {
             <header className="layout-header" style={{ marginTop: '3rem' }}>
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.25rem' }}>
-                        <img src="/logo.png" alt="PGNOS" style={{
+                        <img src="/logo.png" alt="PRGN_OS" style={{
                             width: '42px',
                             height: '42px',
                             mixBlendMode: 'screen',
                         }} />
                         <span style={{ fontSize: '1.8rem', fontWeight: 'bold', letterSpacing: '4px', color: 'var(--color-primary)', textShadow: '0 0 10px var(--color-primary-dim)' }}>
-                            PGNOS
+                            PRGN_OS
                         </span>
                     </div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--color-alert)', fontWeight: 'bold' }}>
-                        [SOLARIS_NODE_ACTIVE]
+                        [USER_3939]
                     </div>
                 </div>
 

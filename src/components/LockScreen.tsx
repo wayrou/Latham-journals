@@ -21,7 +21,7 @@ const LockScreen: React.FC = () => {
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', backgroundColor: 'var(--color-bg)', color: 'var(--color-primary)' }}>
             <div style={{ padding: '3rem', border: '1px solid var(--color-primary-dim)', backgroundColor: 'rgba(56, 163, 160, 0.05)', width: '300px', textAlign: 'center' }}>
                 <Lock size={48} style={{ marginBottom: '1rem', color: error ? 'var(--color-alert)' : 'var(--color-primary)' }} />
-                <h2 style={{ margin: '0 0 2rem 0', fontFamily: 'var(--font-mono)', fontSize: '1.2rem', color: 'var(--color-text)' }}>PGNOS SECURE BOOT</h2>
+                <h2 style={{ margin: '0 0 2rem 0', fontFamily: 'var(--font-mono)', fontSize: '1.2rem', color: 'var(--color-text)' }}>PRGN_OS SECURE BOOT</h2>
 
                 <form onSubmit={handleSubmit}>
                     <div style={{ marginBottom: '1rem' }}>

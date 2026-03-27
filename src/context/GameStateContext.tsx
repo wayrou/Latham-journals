@@ -81,7 +81,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     activeAlert: null
                 };
             } catch (e) {
-                console.error("PGNOS: Failed to parse saved state, reverting to default.", e);
+                console.error("PRGN_OS: Failed to parse saved state, reverting to default.", e);
                 return defaultState;
             }
         }

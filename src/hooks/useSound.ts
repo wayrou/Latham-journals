@@ -5,7 +5,7 @@ export type SoundType = 'click' | 'alert' | 'hum' | 'boot' | 'error' | 'success'
 export const useSound = () => {
     const audioCtx = useRef<AudioContext | null>(null);
     const [isMuted, setIsMuted] = useState(() => {
-        const saved = localStorage.getItem('pgnos_muted');
+        const saved = localStorage.getItem('prgn_os_muted');
         return saved === 'true';
     });
 
@@ -21,7 +21,7 @@ export const useSound = () => {
     const toggleMute = () => {
         setIsMuted(prev => {
             const newVal = !prev;
-            localStorage.setItem('pgnos_muted', String(newVal));
+            localStorage.setItem('prgn_os_muted', String(newVal));
             return newVal;
         });
     };
