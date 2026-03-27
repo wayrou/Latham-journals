@@ -3,6 +3,7 @@ import { useGameState } from '../context/GameStateContext';
 import { useSound } from '../hooks/useSound';
 import { storyData } from '../data/story';
 import { generateHackingGame, getSimilarity, type HackingGame } from '../utils/hackingEngine';
+import { shiftDecrypt, vigenereDecrypt, lathamDecrypt } from '../utils/cipherUtils';
 
 interface LogEntry {
     type: 'input' | 'output' | 'error' | 'system';
@@ -63,12 +64,13 @@ const TerminalApp: React.FC = () => {
                         <div>- <strong>clear</strong>: Clear terminal screen</div>
                         <div>- <strong>history</strong>: View executed commands history</div>
                         <div>- <strong>clearance</strong>: Check current clearance level</div>
-                        <div>ADVANCED COMMANDS:</div>
+                        <div>CRYPTANALYSIS:</div>
                         <div>- <strong>unlock [filename] [password]</strong>: Decrypt password-locked files</div>
+                        <div>- <strong>decrypt [filename] [type] [key]</strong>: Run cipher decryption (shift/vigenere/latham)</div>
+                        <div>- <strong>force-decrypt [filename]</strong>: Spend 100 FRAG to brute-force a cipher file</div>
                         <div>- <strong>xref [file1] [file2]</strong>: Cross-reference data between two files</div>
-                        <div>- <strong>decrypt [filename] [shift_key]</strong>: Run cipher breakdown algorithm</div>
-                        <div>V2 OPERATIONS:</div>
-                        <div>- <strong>vendor</strong>: Access the Codex for Breach upgrades</div>
+                        <div>CODEX:</div>
+                        <div>- <strong>codex</strong>: Access the Codex for Breach upgrades</div>
                     </>
                 );
                 break;
@@ -155,6 +157,8 @@ const TerminalApp: React.FC = () => {
                 break;
 
 
+
+
             case 'xref':
                 if (args.length < 3) {
                     print('Usage: xref [file1] [file2]', 'error');
@@ -182,16 +186,17 @@ const TerminalApp: React.FC = () => {
                 break;
 
             case 'decrypt':
-                if (args.length < 3) {
-                    print('Usage: decrypt [filename] [shift_key (1-9)]', 'error');
+                if (args.length < 4) {
+                    print('Usage: decrypt [filename] [type] [key]', 'error');
+                    print('Types: shift, vigenere, latham', 'error');
                     break;
                 }
                 const decFile = args[1];
-                const decKey = args[2];
-                const shiftNum = parseInt(decKey);
+                const decType = args[2].toLowerCase();
+                const decKey = args.slice(3).join(' ');
 
-                if (isNaN(shiftNum) || shiftNum < 1 || shiftNum > 9) {
-                    print('SHIFT KEY MUST BE A NUMBER BETWEEN 1 AND 9.', 'error');
+                if (!['shift', 'vigenere', 'latham'].includes(decType)) {
+                    print(`UNKNOWN CIPHER TYPE: ${decType}. Use: shift, vigenere, or latham.`, 'error');
                     break;
                 }
 
@@ -203,48 +208,105 @@ const TerminalApp: React.FC = () => {
                 }
 
                 if (docToDec.type !== 'cipher' || !docToDec.cipherKey) {
-                    print(`File ${decFile} does not use standard cipher protocol.`, 'error');
+                    print(`File ${decFile} does not use cipher protocol.`, 'error');
                     break;
                 }
 
-                // Apply Caesar shift decryption to the raw content
+                // Extract cipher text (strip system notes)
                 const rawCipher = docToDec.content.split('\n').filter(line => !line.startsWith('(System')).join('\n');
-                const shiftedText = rawCipher.split('').map(ch => {
-                    if (ch >= 'a' && ch <= 'z') {
-                        return String.fromCharCode(((ch.charCodeAt(0) - 97 - shiftNum + 26) % 26) + 97);
-                    }
-                    if (ch >= 'A' && ch <= 'Z') {
-                        return String.fromCharCode(((ch.charCodeAt(0) - 65 - shiftNum + 26) % 26) + 65);
-                    }
-                    return ch;
-                }).join('');
 
-                print(`APPLYING SHIFT-${shiftNum} DECRYPTION TO ${decFile}...`, 'system');
-                print(<pre style={{ margin: 0, color: 'var(--color-text)' }}>{shiftedText}</pre>, 'output');
+                let decryptedText = '';
+                if (decType === 'shift') {
+                    const shiftNum = parseInt(decKey);
+                    if (isNaN(shiftNum) || shiftNum < 1 || shiftNum > 25) {
+                        print('SHIFT KEY MUST BE A NUMBER BETWEEN 1 AND 25.', 'error');
+                        break;
+                    }
+                    decryptedText = shiftDecrypt(rawCipher, shiftNum);
+                } else if (decType === 'vigenere') {
+                    if (!decKey || !/^[a-zA-Z]+$/.test(decKey)) {
+                        print('VIGENERE KEY MUST BE AN ALPHABETIC KEYWORD.', 'error');
+                        break;
+                    }
+                    decryptedText = vigenereDecrypt(rawCipher, decKey.toUpperCase());
+                } else if (decType === 'latham') {
+                    const lathamKey = parseInt(decKey);
+                    if (isNaN(lathamKey) || lathamKey < 1 || lathamKey > 25) {
+                        print('LATHAM KEY MUST BE A NUMBER BETWEEN 1 AND 25.', 'error');
+                        break;
+                    }
+                    decryptedText = lathamDecrypt(rawCipher, lathamKey);
+                }
 
-                if (docToDec.cipherKey === decKey) {
+                print(`APPLYING ${decType.toUpperCase()} DECRYPTION TO ${decFile}...`, 'system');
+                print(<pre style={{ margin: 0, color: 'var(--color-text)' }}>{decryptedText}</pre>, 'output');
+
+                // Check if the key matches
+                const keyMatches = decType === (docToDec.cipherType || 'shift') &&
+                    decKey.toUpperCase() === docToDec.cipherKey.toUpperCase();
+
+                if (keyMatches) {
                     unlockFile(docToDec.id);
                     markFileAsRead(docToDec.id);
                     addRestoration(15);
-                    setClearance(2);
+                    if (docToDec.cipherType === 'shift') setClearance(2);
                     print('DECRYPTION VERIFIED. FILE UNLOCKED.', 'system');
                     if (docToDec.secretContent) {
                         const bonusLines = docToDec.secretContent.split('\n').filter(l => l.startsWith('['));
                         bonusLines.forEach(l => print(l, 'system'));
                     }
                 } else {
-                    print('OUTPUT DOES NOT MATCH KNOWN PLAINTEXT SIGNATURES. TRY A DIFFERENT KEY.', 'error');
+                    print('OUTPUT DOES NOT MATCH KNOWN PLAINTEXT SIGNATURES. TRY A DIFFERENT KEY OR CIPHER TYPE.', 'error');
+                }
+                break;
+
+            case 'force-decrypt':
+                if (args.length < 2) {
+                    print('Usage: force-decrypt [filename]', 'error');
+                    print('Cost: 100 FRAGMENTS (earned via BREACH operations)', 'error');
+                    break;
+                }
+                const forceFile = args[1];
+                const forceDoc = storyData.find(d => d.name === forceFile || d.id === forceFile);
+
+                if (!forceDoc || !isFileAccessible(forceDoc.id)) {
+                    print(`File not found: ${forceFile}`, 'error');
+                    break;
+                }
+
+                if (forceDoc.type !== 'cipher') {
+                    print(`File ${forceFile} does not use cipher protocol. Use 'unlock' for password files.`, 'error');
+                    break;
+                }
+
+                if (unlockedFiles.includes(forceDoc.id)) {
+                    print(`File ${forceFile} is already decrypted.`, 'system');
+                    break;
+                }
+
+                print(`BRUTE FORCE DECRYPTION REQUIRES 100 FRAGMENTS.`, 'system');
+                print(`CURRENT BALANCE: ${fragments} FRAGMENTS`, 'system');
+
+                if (spendFragments(100)) {
+                    unlockFile(forceDoc.id);
+                    markFileAsRead(forceDoc.id);
+                    addRestoration(15);
+                    print(`ALLOCATING COMPUTE CYCLES... BRUTE FORCE COMPLETE.`, 'system');
+                    print(<pre style={{ margin: 0, color: 'var(--color-text)' }}>{forceDoc.secretContent}</pre>, 'output');
+                } else {
+                    print(`INSUFFICIENT FRAGMENTS. Mine more via BREACH operations.`, 'error');
                 }
                 break;
 
             case 'vendor':
+            case 'codex':
                 if (args.length === 1) {
-                    print(`--- PRGN_OS FRAGMENT EXCHANGE ---`);
+                    print(`--- PRGN_OS CODEX ---`);
                     print(`CURRENT BALANCE: ${fragments} FRAGMENTS`);
                     print(`\nAVAILABLE UPGRADES:`);
                     print(`1. [DAMAGE] : Stabilize strike vectors (+1 Base Dmg) - Cost: 50 FRAG`);
                     print(`2. [SHIELDS]: Reinforce chassis latency (+5 Max HP) - Cost: 50 FRAG`);
-                    print(`\nUsage: vendor buy [1|2]`);
+                    print(`\nUsage: codex buy [1|2]`);
                 } else if (args[1] === 'buy') {
                     const item = args[2];
                     if (item === '1') {
