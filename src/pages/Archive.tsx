@@ -1,16 +1,16 @@
 import React from 'react';
 import { useGameState } from '../context/GameStateContext';
 import { storyData } from '../data/story';
-import { FileText, Lock, EyeOff } from 'lucide-react';
+import { FileText, Lock } from 'lucide-react';
 
 const Archive: React.FC = () => {
-    const { unlockedFiles, clearanceLevel } = useGameState();
+    const { unlockedFiles } = useGameState();
 
     return (
         <div>
             <h2>Document Archive</h2>
             <p style={{ opacity: 0.8, marginBottom: '2rem' }}>
-                Total Files: {storyData.length} | Current Clearance: Level {clearanceLevel}
+                Total Files: {storyData.length}
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
@@ -20,8 +20,6 @@ const Archive: React.FC = () => {
                     let icon = <FileText size={20} />;
                     if (!isUnlocked) {
                         if (doc.type === 'locked') icon = <Lock size={20} style={{ color: 'var(--color-alert)' }} />;
-                        if (doc.type === 'redacted') icon = <EyeOff size={20} style={{ color: 'var(--color-accent)' }} />;
-                        if (doc.type === 'hidden' && clearanceLevel < (doc.requiredClearance || 99)) return null; // completely hidden
                         if (doc.type === 'cipher') icon = <Lock size={20} style={{ color: 'var(--color-primary)' }} />;
                     }
 
@@ -40,7 +38,7 @@ const Archive: React.FC = () => {
                                 <strong style={{ fontFamily: 'var(--font-mono)' }}>{doc.name}</strong>
                             </div>
                             <div style={{ fontSize: '0.85rem' }}>
-                                <strong>Status:</strong> {isUnlocked ? 'CLEARED' : (doc.type === 'redacted' ? 'PARTIAL (REDACTED)' : 'ENCRYPTED')}
+                                <strong>Status:</strong> {isUnlocked ? 'CLEARED' : 'ENCRYPTED'}
                                 <br />
                                 {isUnlocked ? (
                                     <span style={{ color: 'var(--color-primary)' }}>AVAILABLE IN TERMINAL</span>

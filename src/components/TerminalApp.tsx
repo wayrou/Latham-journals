@@ -12,8 +12,8 @@ interface LogEntry {
 
 const TerminalApp: React.FC = () => {
     const {
-        unlockedFiles, clearanceLevel, unlockFile, markFileAsRead,
-        setClearance, addRestoration,
+        unlockedFiles, markFileAsRead, unlockFile,
+        addRestoration,
         fragments, spendFragments, upgradeCrawler
     } = useGameState();
     const { playSound } = useSound();
@@ -38,9 +38,7 @@ const TerminalApp: React.FC = () => {
 
     const isFileAccessible = (fileId: string) => {
         const doc = storyData.find(d => d.id === fileId);
-        if (!doc) return false;
-        if (doc.type === 'hidden' && clearanceLevel < (doc.requiredClearance || 99)) return false;
-        return true;
+        return !!doc;
     };
 
     const handleCommand = (cmd: string) => {
@@ -63,7 +61,6 @@ const TerminalApp: React.FC = () => {
                         <div>- <strong>read [filename]</strong>: Display file content</div>
                         <div>- <strong>clear</strong>: Clear terminal screen</div>
                         <div>- <strong>history</strong>: View executed commands history</div>
-                        <div>- <strong>clearance</strong>: Check current clearance level</div>
                         <div>CRYPTANALYSIS:</div>
                         <div>- <strong>unlock [filename] [password]</strong>: Decrypt password-locked files</div>
                         <div>- <strong>decrypt [filename] [type] [key]</strong>: Run cipher decryption (shift/vigenere/latham)</div>
@@ -95,9 +92,7 @@ const TerminalApp: React.FC = () => {
                 print(inputs.length ? inputs.map((i, idx) => `${idx + 1}: ${i}`).join('\n') : 'No history found.');
                 break;
 
-            case 'clearance':
-                print(`CURRENT CLEARANCE LEVEL: ${clearanceLevel}`);
-                break;
+
 
             case 'read':
             case 'open':
@@ -249,7 +244,6 @@ const TerminalApp: React.FC = () => {
                     unlockFile(docToDec.id);
                     markFileAsRead(docToDec.id);
                     addRestoration(15);
-                    if (docToDec.cipherType === 'shift') setClearance(2);
                     print('DECRYPTION VERIFIED. FILE UNLOCKED.', 'system');
                     if (docToDec.secretContent) {
                         const bonusLines = docToDec.secretContent.split('\n').filter(l => l.startsWith('['));

@@ -40,7 +40,7 @@ const Home: React.FC = () => {
         };
     }, []);
 
-    const { archiveRestoration, clearanceLevel, activeJobs, completedJobs, compiledNodes } = useGameState();
+    const { archiveRestoration, activeJobs, completedJobs, compiledNodes } = useGameState();
 
 
 
@@ -75,18 +75,14 @@ const Home: React.FC = () => {
                                 <div style={{ fontSize: '1.5rem', color: 'var(--color-accent)' }}>{Math.floor(archiveRestoration)}%</div>
                             </div>
                             <div>
-                                <div style={{ color: 'var(--color-primary-dim)' }}>CURRENT CLEARANCE</div>
-                                <div style={{ fontSize: '1.5rem', color: 'var(--color-text)' }}>LEVEL {clearanceLevel}</div>
+                                <div style={{ color: 'var(--color-primary-dim)' }}>NODES COMPILED</div>
+                                <div style={{ fontSize: '1.5rem', color: compiledNodes.length > 0 ? 'var(--color-accent)' : 'var(--color-text)' }}>
+                                    {compiledNodes.length > 0 ? compiledNodes.length : 'NONE'}
+                                </div>
                             </div>
                             <div>
                                 <div style={{ color: 'var(--color-primary-dim)' }}>BACKGROUND JOBS</div>
                                 <div>{activeJobs.length} Active / {completedJobs.length} Completed</div>
-                            </div>
-                            <div>
-                                <div style={{ color: 'var(--color-primary-dim)' }}>NODES COMPILED</div>
-                                <div style={{ color: compiledNodes.length > 0 ? 'var(--color-accent)' : 'var(--color-text)' }}>
-                                    {compiledNodes.length > 0 ? compiledNodes.length : 'NONE'}
-                                </div>
                             </div>
                         </div>
                         <p style={{ marginTop: '2rem', fontStyle: 'italic', opacity: 0.8 }}>

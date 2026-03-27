@@ -7,7 +7,6 @@ export interface StoryFile {
   password?: string;
   cipherType?: 'shift' | 'vigenere' | 'latham';
   cipherKey?: string;
-  requiredClearance?: number;
   unlockedByDefault?: boolean;
 }
 
@@ -118,9 +117,9 @@ Wait for the deployment sequence alpha.`,
   {
     id: 'hidden-truth',
     name: 'hidden-truth.dat',
-    type: 'hidden',
-    requiredClearance: 2,
-    content: `ACCESS DENIED. CLEARANCE LEVEL 2 REQUIRED.`,
+    type: 'locked',
+    password: 'eclipse',
+    content: `ENCRYPTED FILE. PASSWORD REQUIRED.`,
     secretContent: `THE LATHAM JOURNALS - FINAL ENTRY
 DATE: 2205
 AUTHOR: Sarah Latham
@@ -131,9 +130,10 @@ But Canamerica has stopped trying to rebuild the underground cities. The elites 
   {
     id: 'milestone-01',
     name: 'hughes-report.log',
-    type: 'hidden',
-    requiredClearance: 2,
-    content: 'ACCESS DENIED. CLEARANCE LEVEL 2 REQUIRED.',
+    type: 'cipher',
+    cipherType: 'latham',
+    cipherKey: '7',
+    content: 'Zfcpyl rclpyl. Jvp dsbsh uva vmpun.',
     secretContent: `DATE: 1996
 AUTHOR: A.C. Hughes
 SUBJECT: The Catalyst
@@ -143,9 +143,10 @@ I found it. A meteorite with a crystalline lattice so complex it defies terrestr
   {
     id: 'milestone-02',
     name: 'nova-directive.dat',
-    type: 'hidden',
-    requiredClearance: 2,
-    content: 'ACCESS DENIED. CLEARANCE LEVEL 2 REQUIRED.',
+    type: 'cipher',
+    cipherType: 'vigenere',
+    cipherKey: 'NOVA',
+    content: 'Pbvp dfecpgvi. Pbvp gbtgyil.',
     secretContent: `DATE: 2205
 AUTHOR: Nova Systems Board
 

@@ -5,7 +5,6 @@ import { jobsData } from '../data/jobs';
 interface GameState {
     unlockedFiles: string[];
     readFiles: string[];
-    clearanceLevel: number;
     isSystemUnlocked: boolean;
     archiveRestoration: number;
     activeJobs: { id: string; startTime: number }[];
@@ -19,7 +18,6 @@ interface GameState {
 interface GameStateContextType extends GameState {
     unlockFile: (fileId: string) => void;
     markFileAsRead: (fileId: string) => void;
-    setClearance: (level: number) => void;
     resetGame: () => void;
     unlockSystem: (password: string) => boolean;
     addRestoration: (amount: number) => void;
@@ -38,7 +36,6 @@ interface GameStateContextType extends GameState {
 const defaultState: GameState = {
     unlockedFiles: [],
     readFiles: [],
-    clearanceLevel: 1,
     isSystemUnlocked: false,
     archiveRestoration: 0,
     activeJobs: [],
@@ -74,7 +71,6 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     compiledNodes: Array.isArray(parsed.compiledNodes) ? parsed.compiledNodes : [],
                     fragments: Number(parsed.fragments) || 0,
                     archiveRestoration: Number(parsed.archiveRestoration) || 0,
-                    clearanceLevel: Number(parsed.clearanceLevel) || 1,
                     crawlerStats: parsed.crawlerStats && typeof parsed.crawlerStats.baseDmg === 'number'
                         ? parsed.crawlerStats
                         : { baseDmg: 3, maxHpBoost: 0 },
@@ -127,17 +123,11 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     let newRestoration = prev.archiveRestoration + restorationBoost;
                     if (newRestoration > 100) newRestoration = 100;
 
-                    // Auto-Clearance Upgrades
-                    let newClearance = prev.clearanceLevel;
-                    if (newRestoration >= 30 && newClearance < 2) newClearance = 2;
-                    if (newRestoration >= 75 && newClearance < 3) newClearance = 3;
-
                     return {
                         ...prev,
                         activeJobs: newActiveJobs,
                         completedJobs: newCompletedJobs,
                         archiveRestoration: newRestoration,
-                        clearanceLevel: newClearance,
                         unlockedFiles: newUnlockedFiles,
                         activeAlert: newAlert,
                     };
@@ -174,9 +164,6 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
         });
     };
 
-    const setClearance = (level: number) => {
-        setGameState(prev => ({ ...prev, clearanceLevel: level }));
-    };
 
     const resetGame = () => {
         setGameState(defaultState);
@@ -195,11 +182,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
             let newRestoration = prev.archiveRestoration + amount;
             if (newRestoration > 100) newRestoration = 100;
 
-            let newClearance = prev.clearanceLevel;
-            if (newRestoration >= 30 && newClearance < 2) newClearance = 2;
-            if (newRestoration >= 75 && newClearance < 3) newClearance = 3;
-
-            return { ...prev, archiveRestoration: newRestoration, clearanceLevel: newClearance };
+            return { ...prev, archiveRestoration: newRestoration };
         });
     };
 
@@ -225,14 +208,9 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
             let newRestoration = prev.archiveRestoration + 25; // Tactile matches give massive restoration
             if (newRestoration > 100) newRestoration = 100;
 
-            let newClearance = prev.clearanceLevel;
-            if (newRestoration >= 30 && newClearance < 2) newClearance = 2;
-            if (newRestoration >= 75 && newClearance < 3) newClearance = 3;
-
             return {
                 ...prev,
                 archiveRestoration: newRestoration,
-                clearanceLevel: newClearance,
                 compiledNodes: [...prev.compiledNodes, nodeId]
             };
         });
@@ -295,7 +273,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
     return (
         <GameStateContext.Provider value={{
             ...gameState,
-            unlockFile, markFileAsRead, setClearance, resetGame, unlockSystem,
+            unlockFile, markFileAsRead, resetGame, unlockSystem,
             addRestoration, startJob, compileNode,
             addFragments, spendFragments, upgradeCrawler, triggerAlert, dismissAlert,
             getJobProgress, isJobActive, isJobCompleted
