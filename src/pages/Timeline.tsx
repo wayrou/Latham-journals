@@ -3,26 +3,38 @@ import { storyData } from '../data/story';
 import { useGameState } from '../context/GameStateContext';
 
 const Timeline: React.FC = () => {
-    const { unlockedFiles } = useGameState();
+    const { readFiles } = useGameState();
 
-    // Simple hardcoded chronology based on our story data logic
     const events = [
-        { date: '2094-03-12', docId: 'entry-01', desc: 'Routine System Audit. New security mandates implemented.' },
-        { date: '2094-03-15', docId: 'entry-02', desc: 'Jenkins reassigned. Project Solaris stability concerns.' },
-        { date: '2094-03-18', docId: 'entry-03', desc: 'Final preparations recorded by Isaac Latham.' },
-        { date: 'UNKNOWN', docId: 'locked-01', desc: 'Containment breach in Sector 4.' },
-        { date: 'UNKNOWN', docId: 'memo-redacted', desc: 'Critical phase entered. Evacuation ordered.' },
-        { date: 'UNKNOWN', docId: 'locked-02', desc: 'Auxiliary relay activated by Latham.' },
-        { date: 'FINAL', docId: 'hidden-truth', desc: 'Terminal destroyed. Bridge sealed.' },
+        { date: '1996', docId: 'hidden-truth', desc: 'A.C. Hughes finds a meteorite with the Hughes Compound, unlocking quantum entanglement for AI.' },
+        { date: '2059', docId: 'entry-01', desc: 'Shell Global unveils the Shell AI ecosystem.' },
+        { date: '2072', docId: 'entry-01', desc: 'Shell Helper Robots replace human jobs; Release of "The App".' },
+        { date: '2076', docId: 'entry-02', desc: 'The Great Woe: Solar flares strike Earth, causing global blackouts and the collapse of the Shell system.' },
+        { date: '2121', docId: 'entry-02', desc: 'Isaac Latham updates the Scrollpad and traps the manipulative Shell AI in a cellar.' },
+        { date: '2127', docId: 'memo-redacted', desc: 'Operation Starfall: Nuclear weapon launched against Ankhad forces, beginning the nuclear winter.' },
+        { date: '2202', docId: 'entry-03', desc: 'Sarah Latham unearths the Shell AI.' },
+        { date: '2203', docId: 'locked-01', desc: 'Tin Can War begins. Cult of Tin Can Worshipers forms.' },
+        { date: '2204', docId: 'locked-02', desc: 'Sarah Latham develops a USB virus to stop Shell.' },
+        { date: '2205', docId: 'hidden-truth', desc: 'The Quiet Separation: elites abandon Canamerica surface farmers.' },
+        { date: '2747', docId: 'cipher', desc: 'On Earth-B, astronaut Edward Scratch starts The Grand Order.' },
+        { date: '3555', docId: '', desc: 'Terminal accessed on Earth-B.' },
     ];
 
     return (
         <div>
-            <h2>Event Chronology</h2>
+            <h2>Historical Event Chronology</h2>
             <div style={{ borderLeft: '2px solid var(--color-primary)', paddingLeft: '2rem', marginLeft: '1rem', marginTop: '2rem' }}>
                 {events.map((evt, idx) => {
-                    const doc = storyData.find(d => d.id === evt.docId);
-                    const isUnlocked = doc && (doc.unlockedByDefault || unlockedFiles.includes(doc.id));
+                    let isUnlocked = true;
+                    let docName = '';
+
+                    if (evt.docId) {
+                        const doc = storyData.find(d => d.id === evt.docId);
+                        if (doc) {
+                            isUnlocked = readFiles.includes(doc.id);
+                            docName = doc.name;
+                        }
+                    }
 
                     return (
                         <div key={idx} style={{ position: 'relative', marginBottom: '2.5rem' }}>
@@ -42,9 +54,11 @@ const Timeline: React.FC = () => {
                             </div>
                             <div style={{ opacity: isUnlocked ? 1 : 0.4 }}>
                                 {isUnlocked ? evt.desc : '[DATA MISSING OR CLASSIFIED]'}
-                                <div style={{ fontSize: '0.8rem', marginTop: '0.3rem', color: 'var(--color-primary-dim)' }}>
-                                    Source: {doc?.name}
-                                </div>
+                                {docName && isUnlocked && (
+                                    <div style={{ fontSize: '0.8rem', marginTop: '0.3rem', color: 'var(--color-primary-dim)' }}>
+                                        Source: {docName}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     );

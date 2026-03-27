@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useGameState } from '../context/GameStateContext';
+import { useSound } from '../hooks/useSound';
 import { storyData } from '../data/story';
+import { generateHackingGame, getSimilarity, type HackingGame } from '../utils/hackingEngine';
 
 interface LogEntry {
     type: 'input' | 'output' | 'error' | 'system';
@@ -8,10 +10,17 @@ interface LogEntry {
 }
 
 const TerminalApp: React.FC = () => {
-    const { unlockedFiles, clearanceLevel, unlockFile, setClearance } = useGameState();
+    const {
+        unlockedFiles, clearanceLevel, unlockFile, markFileAsRead,
+        setClearance, addRestoration,
+        fragments, spendFragments, upgradeCrawler
+    } = useGameState();
+    const { playSound } = useSound();
     const [inputVal, setInputVal] = useState('');
+    const [hackingGame, setHackingGame] = useState<HackingGame | null>(null);
+    const [hackingLogs, setHackingLogs] = useState<string[]>([]);
     const [history, setHistory] = useState<LogEntry[]>([
-        { type: 'system', content: 'PEREGRINE TECHNOLOGIES TERMINAL v4.2.1 CONNECTED.' },
+        { type: 'system', content: 'PGNOS SECURE TERMINAL v4.2.1 CONNECTED.' },
         { type: 'system', content: 'ENTER COMMAND OR "help" FOR SYSTEM ASSISTANCE.' }
     ]);
     const endRef = useRef<HTMLDivElement>(null);
@@ -38,6 +47,7 @@ const TerminalApp: React.FC = () => {
         if (!trimmed) return;
 
         print(`> ${trimmed}`, 'input');
+        playSound('success');
 
         const args = trimmed.split(/\s+/);
         const command = args[0].toLowerCase();
@@ -58,6 +68,8 @@ const TerminalApp: React.FC = () => {
                         <div>- <strong>reconstruct [filename] [word1] [word2]...</strong>: Fill redacted phrases sequentially</div>
                         <div>- <strong>xref [file1] [file2]</strong>: Cross-reference data between two files</div>
                         <div>- <strong>decrypt [filename] [shift_key]</strong>: Run cipher breakdown algorithm</div>
+                        <div>V2 OPERATIONS:</div>
+                        <div>- <strong>vendor</strong>: Access the Codex for Breach upgrades</div>
                     </>
                 );
                 break;
@@ -103,13 +115,14 @@ const TerminalApp: React.FC = () => {
                 const isUnlocked = docToRead.unlockedByDefault || unlockedFiles.includes(docToRead.id);
 
                 if (isUnlocked) {
+                    markFileAsRead(docToRead.id);
                     if (docToRead.secretContent) {
                         print(<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{docToRead.secretContent}</pre>);
                     } else {
                         print(<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{docToRead.content}</pre>);
                     }
                 } else {
-                    print(<pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--color-alert)' }}>{docToRead.content}</pre>);
+                    print(<pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--color-alert)' }}>[SYSTEM] ANOMALOUS ACCESS ATTEMPT LOGGED. THE TRUTH IS FRAGMENTED.</pre>, 'error');
                 }
                 break;
 
@@ -134,6 +147,8 @@ const TerminalApp: React.FC = () => {
 
                 if (docToUnlock.password === passAttempt) {
                     unlockFile(docToUnlock.id);
+                    markFileAsRead(docToUnlock.id);
+                    addRestoration(5);
                     print(`FILE DECRYPTED: ${unlockFileTarget}\n${docToUnlock.secretContent}`, 'system');
                 } else {
                     print('PASSWORD REJECTED.', 'error');
@@ -175,6 +190,8 @@ const TerminalApp: React.FC = () => {
 
                 if (match) {
                     unlockFile(docToRecon.id);
+                    markFileAsRead(docToRecon.id);
+                    addRestoration(10);
                     print(`RECONSTRUCTION SUCCESSFUL: ${reconFileTarget}\n\n${docToRecon.secretContent}`, 'system');
                 } else {
                     print('RECONSTRUCTION FAILED. TERM MISMATCH OR INCORRECT SEQUENCE.', 'error');
@@ -196,6 +213,8 @@ const TerminalApp: React.FC = () => {
                     const locked1Doc = storyData.find(d => d.id === 'locked-01');
                     if (locked1Doc && unlockedFiles.includes(locked1Doc.id)) {
                         unlockFile('xref'); // Provide a virtual xref success state
+                        markFileAsRead('xref');
+                        addRestoration(5);
                         print('XREF MATCH: Containment protocol implies sequence alpha. The hidden cipher determines max clearance.', 'system');
                     } else {
                         print('XREF FAILED: One or more files are encrypted or lack sufficient context.', 'error');
@@ -207,11 +226,17 @@ const TerminalApp: React.FC = () => {
 
             case 'decrypt':
                 if (args.length < 3) {
-                    print('Usage: decrypt [filename] [shift_key]', 'error');
+                    print('Usage: decrypt [filename] [shift_key (1-9)]', 'error');
                     break;
                 }
                 const decFile = args[1];
                 const decKey = args[2];
+                const shiftNum = parseInt(decKey);
+
+                if (isNaN(shiftNum) || shiftNum < 1 || shiftNum > 9) {
+                    print('SHIFT KEY MUST BE A NUMBER BETWEEN 1 AND 9.', 'error');
+                    break;
+                }
 
                 const docToDec = storyData.find(d => d.name === decFile || d.id === decFile);
 
@@ -225,13 +250,76 @@ const TerminalApp: React.FC = () => {
                     break;
                 }
 
+                // Apply Caesar shift decryption to the raw content
+                const rawCipher = docToDec.content.split('\n').filter(line => !line.startsWith('(System')).join('\n');
+                const shiftedText = rawCipher.split('').map(ch => {
+                    if (ch >= 'a' && ch <= 'z') {
+                        return String.fromCharCode(((ch.charCodeAt(0) - 97 - shiftNum + 26) % 26) + 97);
+                    }
+                    if (ch >= 'A' && ch <= 'Z') {
+                        return String.fromCharCode(((ch.charCodeAt(0) - 65 - shiftNum + 26) % 26) + 65);
+                    }
+                    return ch;
+                }).join('');
+
+                print(`APPLYING SHIFT-${shiftNum} DECRYPTION TO ${decFile}...`, 'system');
+                print(<pre style={{ margin: 0, color: 'var(--color-text)' }}>{shiftedText}</pre>, 'output');
+
                 if (docToDec.cipherKey === decKey) {
                     unlockFile(docToDec.id);
+                    markFileAsRead(docToDec.id);
+                    addRestoration(15);
                     setClearance(2);
-                    print(`DECRYPTION SUCCESSFUL: ${decFile}\n\n${docToDec.secretContent}`, 'system');
+                    print('DECRYPTION VERIFIED. FILE UNLOCKED.', 'system');
+                    if (docToDec.secretContent) {
+                        const bonusLines = docToDec.secretContent.split('\n').filter(l => l.startsWith('['));
+                        bonusLines.forEach(l => print(l, 'system'));
+                    }
                 } else {
-                    print('DECRYPTION ALGORITHM FAILED. INCORRECT KEY.', 'error');
+                    print('OUTPUT DOES NOT MATCH KNOWN PLAINTEXT SIGNATURES. TRY A DIFFERENT KEY.', 'error');
                 }
+                break;
+
+            case 'vendor':
+                if (args.length === 1) {
+                    print(`--- PGNOS FRAGMENT EXCHANGE ---`);
+                    print(`CURRENT BALANCE: ${fragments} FRAGMENTS`);
+                    print(`\nAVAILABLE UPGRADES:`);
+                    print(`1. [DAMAGE] : Stabilize strike vectors (+1 Base Dmg) - Cost: 50 FRAG`);
+                    print(`2. [SHIELDS]: Reinforce chassis latency (+5 Max HP) - Cost: 50 FRAG`);
+                    print(`\nUsage: vendor buy [1|2]`);
+                } else if (args[1] === 'buy') {
+                    const item = args[2];
+                    if (item === '1') {
+                        if (spendFragments(50)) {
+                            upgradeCrawler('baseDmg');
+                            print(`UPGRADE INSTALLED: BASE DAMAGE INCREASED.`, 'system');
+                        } else {
+                            print(`INSUFFICIENT FRAGMENTS. COLLECTION REQUIRED.`, 'error');
+                        }
+                    } else if (item === '2') {
+                        if (spendFragments(50)) {
+                            upgradeCrawler('maxHpBoost');
+                            print(`UPGRADE INSTALLED: MAX HEALTH CAPACITY INCREASED.`, 'system');
+                        } else {
+                            print(`INSUFFICIENT FRAGMENTS. COLLECTION REQUIRED.`, 'error');
+                        }
+                    } else {
+                        print(`UNKNOWN ITEM ID: ${item}`, 'error');
+                    }
+                }
+                break;
+
+            case 'override':
+                if (args.length < 2) {
+                    print('Usage: override [node_id]', 'error');
+                    break;
+                }
+                const nodeToHack = args[1];
+                // For now, any node name works to trigger the game
+                setHackingGame(generateHackingGame());
+                setHackingLogs([`[INITIALIZING OVERRIDE ON ${nodeToHack.toUpperCase()}]`, `[SEARCHING FOR ENTROPY... GEN_3_VECTORS_FOUND]`]);
+                playSound('boot');
                 break;
 
             default:
@@ -242,32 +330,116 @@ const TerminalApp: React.FC = () => {
 
     const onSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        handleCommand(inputVal);
+        const cmd = inputVal.trim();
+        if (!cmd) return;
+
+        if (hackingGame) {
+            handleHackingInput(cmd);
+        } else {
+            handleCommand(cmd);
+        }
         setInputVal('');
+    };
+
+    const handleHackingInput = (guess: string) => {
+        const upperGuess = guess.toUpperCase();
+        const found = hackingGame!.words.find(w => w.word === upperGuess);
+
+        if (!found) {
+            setHackingLogs(prev => [...prev, `ERR: Word '${upperGuess}' not found in stack.`]);
+            playSound('error');
+            return;
+        }
+
+        if (upperGuess === hackingGame!.correctPassword) {
+            playSound('success');
+            addRestoration(10);
+            print(`OVERRIDE SUCCESSFUL. ACCESS GRANTED TO SECTOR NULL.`, 'system');
+            setHackingGame(null);
+        } else {
+            const sim = getSimilarity(upperGuess, hackingGame!.correctPassword);
+            playSound('error');
+            setHackingGame(prev => {
+                const next = { ...prev!, attemptsRemaining: prev!.attemptsRemaining - 1 };
+                if (next.attemptsRemaining <= 0) {
+                    print(`OVERRIDE CRITICAL FAILURE. LOCKOUT INITIATED.`, 'error');
+                    setHackingGame(null);
+                } else {
+                    setHackingLogs(l => [...l, `GUESS: ${upperGuess} - SIMILARITY: ${sim}/${hackingGame!.correctPassword.length}`]);
+                }
+                return next;
+            });
+        }
+    };
+
+    const renderHackingGrid = () => {
+        if (!hackingGame) return null;
+        return (
+            <div style={{ padding: '1rem', border: '1px solid var(--color-accent)', backgroundColor: 'rgba(56, 163, 160, 0.05)' }}>
+                <div style={{ color: 'var(--color-accent)', marginBottom: '1rem', borderBottom: '1px solid var(--color-accent)' }}>
+                    {hackingGame.attemptsRemaining} ATTEMPT(S) REMAINING
+                </div>
+                <div style={{ display: 'flex', gap: '2rem' }}>
+                    <div style={{ flex: 1 }}>
+                        {hackingGame.grid.map((row, y) => (
+                            <div key={y} style={{ display: 'flex', gap: '8px', lineHeight: '1.2' }}>
+                                <span style={{ opacity: 0.5, marginRight: '10px' }}>0x{y.toString(16).toUpperCase()}8F</span>
+                                {row.map((char, x) => (
+                                    <span key={x} style={{
+                                        color: /[A-Z]/.test(char) ? 'var(--color-text)' : 'var(--color-primary-dim)',
+                                        fontWeight: /[A-Z]/.test(char) ? 'bold' : 'normal',
+                                        cursor: /[A-Z]/.test(char) ? 'pointer' : 'default'
+                                    }}>
+                                        {char}
+                                    </span>
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                    <div style={{ width: '250px', fontSize: '0.8rem', color: 'var(--color-accent)' }}>
+                        {hackingLogs.map((log, i) => (
+                            <div key={i} style={{ marginBottom: '4px' }}>&gt; {log}</div>
+                        ))}
+                    </div>
+                </div>
+                <div style={{ marginTop: '1rem', color: 'var(--color-primary-dim)', fontSize: '0.8rem' }}>
+                    [ TYPE WORD TO SELECT ]
+                </div>
+            </div>
+        );
     };
 
     return (
         <div style={{ padding: '1rem', height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
-            <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1rem' }}>
-                {history.map((entry, i) => (
-                    <div key={i} style={{
-                        marginBottom: '0.5rem',
-                        color: entry.type === 'error' ? 'var(--color-alert)' :
-                            entry.type === 'system' ? 'var(--color-accent)' :
-                                entry.type === 'input' ? 'var(--color-text)' : 'var(--color-primary)'
-                    }}>
-                        {typeof entry.content === 'string' ? <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)' }}>{entry.content}</pre> : entry.content}
-                    </div>
-                ))}
-                <div ref={endRef} />
-            </div>
+            {hackingGame ? (
+                <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1rem' }}>
+                    {renderHackingGrid()}
+                </div>
+            ) : (
+                <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1rem' }}>
+                    {history.map((entry, i) => (
+                        <div key={i} style={{
+                            marginBottom: '0.5rem',
+                            color: entry.type === 'error' ? 'var(--color-alert)' :
+                                entry.type === 'system' ? 'var(--color-accent)' :
+                                    entry.type === 'input' ? 'var(--color-text)' : 'var(--color-primary)'
+                        }}>
+                            {typeof entry.content === 'string' ? <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)' }}>{entry.content}</pre> : entry.content}
+                        </div>
+                    ))}
+                    <div ref={endRef} />
+                </div>
+            )}
 
             <form onSubmit={onSubmit} style={{ display: 'flex', alignItems: 'center' }}>
                 <span style={{ color: 'var(--color-text)', marginRight: '0.5rem' }}>{'>'}</span>
                 <input
                     type="text"
                     value={inputVal}
-                    onChange={(e) => setInputVal(e.target.value)}
+                    onChange={(e) => {
+                        setInputVal(e.target.value);
+                        playSound('click');
+                    }}
                     autoFocus
                     spellCheck={false}
                     autoComplete="off"

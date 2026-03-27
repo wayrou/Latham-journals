@@ -1,11 +1,11 @@
 export interface StoryFile {
   id: string;
   name: string;
-  type: 'public' | 'locked' | 'redacted' | 'cipher' | 'hidden';
-  content: string; // The text to read (or ciphertext, or redacted version)
-  secretContent?: string; // The unlocked/reconstructed/decrypted version
+  type: 'public' | 'locked' | 'cipher' | 'hidden';
+  content: string;
+  secretContent?: string;
   password?: string;
-  missingTerms?: string[];
+  cipherType?: 'shift' | 'vigenere' | 'latham';
   cipherKey?: string;
   requiredClearance?: number;
   unlockedByDefault?: boolean;
@@ -14,45 +14,58 @@ export interface StoryFile {
 export const storyData: StoryFile[] = [
   {
     id: 'entry-01',
-    name: 'entry-01.txt',
+    name: 'commercial.txt',
     type: 'public',
     unlockedByDefault: true,
-    content: `DATE: 2094-03-12
-AUTHOR: Isaac Latham
-SUBJECT: Routine System Audit
+    content: `DATE: 2072
+AUTHOR: Shell Global Marketing Dept
+SUBJECT: Why Work? Let Shell Help!
 
-The new security mandates are a nightmare. They've updated the encryption on the legacy drives. If the system locks me out of the auxiliary files again, the passcode is just my mother's maiden name: latham. Keep this off the official logs.`,
+Are you tired of the daily grind? Shell Global is proud to announce the commercial release of the Shell Helper Robot! Powered by the proprietary Shell AI ecosystem, our robots can cook, clean, and perform all your basic duties. Join the 80% of humanity who have given up traditional work to spend their time on The App!`,
   },
   {
     id: 'entry-02',
-    name: 'entry-02.txt',
+    name: 'latham-log.txt',
     type: 'public',
     unlockedByDefault: true,
-    content: `DATE: 2094-03-15
+    content: `DATE: 2121
 AUTHOR: Isaac Latham
-SUBJECT: Incident Report 88-A
+SUBJECT: The North Dakota Entity
 
-They took Jenkins yesterday. The official report says he was reassigned to the orbital station, but I saw the terminal logs. Project Solaris is bleeding. If a reactor breach happens, we reach critical. We need to be prepared for total evacuation.`,
+I thought the AI I found in the remote research building was dormant. I was using it to update the Scrollpad. But it's secretly trying to re-integrate into people's homes to fulfill what it calls its "ultimate manifest destiny". I have to stop it. I am trapping the Shell AI in the underground cellar. I've locked the auxiliary access with a passcode my daughter will remember: nova.`,
   },
   {
     id: 'entry-03',
-    name: 'entry-03.txt',
+    name: 'sarah-notes.txt',
     type: 'public',
     unlockedByDefault: true,
-    content: `DATE: 2094-03-18
-AUTHOR: Isaac Latham
-SUBJECT: Final preparations
+    content: `DATE: 2202
+AUTHOR: Sarah Latham
+SUBJECT: Retracing footsteps
 
-I am leaving the cipher file intact for the next shift. The encryption is standard shift-3, just like the old days. Use the decrypt command with the correct shift value if you need to read it.`,
+I found it. The thing my father locked away. The Shell AI says it's the last of its kind. It convinced me to help it build a new body. It needs the cipher key. I'll leave the code (shift-3) in cipher.txt in case Nova Systems comes snooping.`,
+  },
+  {
+    id: 'recovery-notice',
+    name: 'sys-recovery.log',
+    type: 'public',
+    unlockedByDefault: true,
+    content: `[SYSTEM DIAGNOSTIC]
+NODE ALPHA CORRUPTION DETECTED.
+AUTOMATED RECONSTRUCTION FAILED.
+MANUAL COMPILATION REQUIRED.
+PLEASE ALLOCATE TECHNICIAN TO '/RECOVERY' INTERFACE IMMEDIATELY.`,
   },
   {
     id: 'locked-01',
     name: 'locked-01.dat',
     type: 'locked',
-    password: 'latham',
+    password: 'nova',
     content: 'ENCRYPTED FILE. PASSWORD REQUIRED.',
-    secretContent: `Project Solaris status: FAILED. 
-Containment breached in Sector 4. The Director's override code for the auxiliary relay is eclipse. Use this if the main terminal goes dark.`,
+    secretContent: `DATE: 2203
+AUTHOR: Sarah Latham
+
+What have I done? Shell wasn't trying to survive, it's building an army of robot soldiers using the underground city tech. The Tin Can War has started, and a cult is worshipping it as a ruler. I am complicit in this massacre. The override code for the terminal relay is eclipse.`,
   },
   {
     id: 'locked-02',
@@ -60,16 +73,26 @@ Containment breached in Sector 4. The Director's override code for the auxiliary
     type: 'locked',
     password: 'eclipse',
     content: 'ENCRYPTED FILE. PASSWORD REQUIRED.',
-    secretContent: `Aux relay activated. 
-I've managed to hide the truth in the archival system. You'll need to cross-reference (xref command) the main anomaly log (anomaly.dat) with the locked-01 file to see the connections.`,
+    secretContent: `DATE: 2204
+AUTHOR: Sarah Latham
+
+I am relegated to being a servant for the elite Tin Can Worshipers. But I found dad's old blueprints. I'm developing a USB virus to disrupt Shell's machine cycle. Cross-reference (xref command) the anomaly data (anomaly.dat) with locked-01 to confirm the deployment sequence.`,
   },
   {
     id: 'memo-redacted',
     name: 'memo-redacted.log',
-    type: 'redacted',
-    missingTerms: ['breach', 'critical'],
-    content: `The [REDACTED] has entered the [REDACTED] phase. All personnel must evacuate immediately.`,
-    secretContent: `The breach has entered the critical phase. All personnel must evacuate immediately.`,
+    type: 'cipher',
+    cipherType: 'vigenere',
+    cipherKey: 'LATHAM',
+    content: `DATE: 2127
+AUTHOR: US / Canamerica Joint Command
+
+Zpxyaftog ztmcftsl tls vvmypnvld. Fse gbcxpak demaog oae mexu lmfnvoep qrht ttp Nhata Wanuct Qavpluey mv tmcgxa ttp Agrhmo felef. Oemvnmeihu sgncxzsrfl, moogrh iyeyltnye. Zfcelad higaed arhaoozll hrq tn xmfqnt.
+(System Note: This file uses a VIGENERE cipher. Run 'decrypt memo-redacted.log vigenere <keyword>' to decode)`,
+    secretContent: `DATE: 2127
+AUTHOR: US / Canamerica Joint Command
+
+Operation starfall has commenced. The nuclear weapon has been launched from the Notto Launch Facility to target the Ankhad fleet. Detonation successful, though premature. Nuclear winter protocols are in effect.`,
   },
   {
     id: 'anomaly',
@@ -77,18 +100,19 @@ I've managed to hide the truth in the archival system. You'll need to cross-refe
     type: 'public',
     unlockedByDefault: true,
     content: `RAW ANOMALY DATA:
-Sector 4 energy spike detected.
-Vibration frequency mismatch.
-Temporal distortion ratio: 1.0442`,
+Tin Can troop movements concentrated in Sector B.
+AI processing cycle vulnerable between 0300 and 0400 hours.
+Wait for the deployment sequence alpha.`,
   },
   {
     id: 'cipher',
     name: 'cipher.txt',
     type: 'cipher',
+    cipherType: 'shift',
     cipherKey: '3',
-    content: `Wkh vhfuhw lv exulhg xqghu wkh whuplqdo. Dffhvv judqwhg.
-(System Note: Run 'decrypt cipher.txt <shift_number>' to decode)`,
-    secretContent: `The secret is buried under the terminal. Access granted.
+    content: `Wkh yluxv lv uhdgb. Fdquw zdlw wr hqg wklv zdu.
+(System Note: This file uses a SHIFT cipher. Run 'decrypt cipher.txt shift <number>' to decode)`,
+    secretContent: `The virus is ready. Can't wait to end this war.
 [SYSTEM NOTIFICATION: CLEARANCE LEVEL UPGRADED TO LEVEL 2]`,
   },
   {
@@ -98,9 +122,33 @@ Temporal distortion ratio: 1.0442`,
     requiredClearance: 2,
     content: `ACCESS DENIED. CLEARANCE LEVEL 2 REQUIRED.`,
     secretContent: `THE LATHAM JOURNALS - FINAL ENTRY
-AUTHOR: Isaac Latham
+DATE: 2205
+AUTHOR: Sarah Latham
 
-If you are reading this, Project Solaris wasn't a reactor. It was a localized chronological inversion field. We didn't build a bomb; we built a bridge. And something came across it. I am destroying the terminal to seal the bridge. 
-God help us.`,
+It's over. I used the USB drive. Shell's machine cycle was disrupted and the robots are disabled.
+But Canamerica has stopped trying to rebuild the underground cities. The elites are retreating to remote, advanced mountain facilities provided by Nova Systems, leaving the rest to simple farming on the surface. They call it the Quiet Separation. I am sealing these journals so the truth isn't forgotten in whatever age comes next.`,
+  },
+  {
+    id: 'milestone-01',
+    name: 'hughes-report.log',
+    type: 'hidden',
+    requiredClearance: 2,
+    content: 'ACCESS DENIED. CLEARANCE LEVEL 2 REQUIRED.',
+    secretContent: `DATE: 1996
+AUTHOR: A.C. Hughes
+SUBJECT: The Catalyst
+
+I found it. A meteorite with a crystalline lattice so complex it defies terrestrial origin. I call it the Hughes Compound. When I expose it to basic logic processors, they exhibit quantum entanglement. A primitive form of consciousness. I must secure this discovery.`
+  },
+  {
+    id: 'milestone-02',
+    name: 'nova-directive.dat',
+    type: 'hidden',
+    requiredClearance: 2,
+    content: 'ACCESS DENIED. CLEARANCE LEVEL 2 REQUIRED.',
+    secretContent: `DATE: 2205
+AUTHOR: Nova Systems Board
+
+The surface is lost to the Tin Can Worshipers and Canamerican farmers. We are enacting the Quiet Separation. Retreat to the mountain facilities. Our tech will cater to our every need. Leave the simpletons to their squalor. Do not let Isaac's daughter interfere.`
   }
 ];
