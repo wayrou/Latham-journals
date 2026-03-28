@@ -12,13 +12,16 @@ import BootSequence from './components/BootSequence';
 const RootApp: React.FC = () => {
   const { isSystemUnlocked } = useGameState();
   const [hasBooted, setHasBooted] = useState(false);
+  const handleBootComplete = React.useCallback(() => {
+    setHasBooted(true);
+  }, []);
 
   if (!isSystemUnlocked) {
     return <LockScreen />;
   }
 
   if (!hasBooted) {
-    return <BootSequence onComplete={() => setHasBooted(true)} />;
+    return <BootSequence onComplete={handleBootComplete} />;
   }
 
   return (

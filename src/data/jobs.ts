@@ -12,7 +12,7 @@ export const jobsData: RecoveryJob[] = [
     {
         id: 'scan-sector-b',
         name: 'SCAN_NODE: Sector B',
-        description: 'Initiates a deep background scan of Sector B to locate encrypted fragments.',
+        description: 'Initiates a deep background scan of Sector B to locate encrypted COMPUTE UNITS.',
         durationMS: 30000, // 30 seconds
         requiredClearance: 1,
         rewardRestorationBoost: 5,

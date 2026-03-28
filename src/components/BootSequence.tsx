@@ -10,7 +10,7 @@ const BOOT_LOGS = [
     "[OK] KERNEL v4.2.1 LOADED",
     "[OK] MOUNTING DRIVE /dev/sda1",
     "[OK] CHECKING DISK QUOTAS",
-    "DECRYPTING SECTOR FRAGMENTS: 0x00A1F...",
+    "DECRYPTING SECTOR COMPUTE UNITS: 0x00A1F...",
     "WARNING: MULTIPLE CORRUPTED NODES DETECTED",
     "[OK] BYPASSING CORRUPTED CACHE",
     "ESTABLISHING HANDSHAKE WITH SOLARIS ARCHIVE...",
@@ -35,31 +35,43 @@ const BootSequence: React.FC<BootSequenceProps> = ({ onComplete }) => {
                 setLines(prev => [...prev, BOOT_LOGS[currentLine]]);
                 currentLine++;
             }
-        }, 300); // New line every 300ms
+        }, 300);
 
-        // Progress bar effect (0 to 100 over ~4 seconds)
+        // Progress bar effect
         const progressInterval = setInterval(() => {
             setProgress(prev => {
-                const next = prev + Math.floor(Math.random() * 10) + 2;
+                const next = prev + Math.floor(Math.random() * 15) + 5;
                 if (next >= 100) {
                     clearInterval(progressInterval);
                     return 100;
                 }
                 return next;
             });
-        }, 200);
+        }, 150);
 
-        // Finish after 5 seconds
+        const handleKeyDown = () => {
+            // Only allow skip if progress is at 100% OR if we want to allow skipping anyway
+            // To ensure it never gets stuck, let's allow skipping after progress is 100
+            setProgress(p => {
+                if (p >= 100) {
+                    onComplete();
+                }
+                return p;
+            });
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+
+        // Fail-safe: Always complete after 8 seconds
         const finishTimeout = setTimeout(() => {
-            clearInterval(textInterval);
-            clearInterval(progressInterval);
             onComplete();
-        }, 5500);
+        }, 8000);
 
         return () => {
             clearInterval(textInterval);
             clearInterval(progressInterval);
             clearTimeout(finishTimeout);
+            window.removeEventListener('keydown', handleKeyDown);
         };
     }, [onComplete]);
 

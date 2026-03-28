@@ -15,7 +15,7 @@ export const inboxData: InboxMessage[] = [
         date: '3555-10-14 09:00',
         content: `Alright, we’ve granted you access to all the Latham stuff. Your terminal will now have access to all the surviving available remnants of what we’re calling “Project Solaris”- it was all recovered from Separation-era junk. 
 
-Most of the records are fragmented, redacted or encrypted with some kind of proprietary cipher. What we’re asking you to do is put a full archive together and try to decrypt everything you can.
+Most of the records are corrupted, redacted or encrypted with some kind of proprietary cipher. What we’re asking you to do is put a full archive together and try to decrypt everything you can.
 
 Thanks!
 -Alan`,
@@ -26,7 +26,7 @@ Thanks!
         sender: 'IT-Automated',
         subject: 'NOTICE: Background Jobs Active',
         date: '3555-10-15 11:22',
-        content: `User, we see you've initiated some background recovery sweeps over the network. Please note that restoring deep-crust fragments requires significant processing power. 
+        content: `User, we see you've initiated some background recovery sweeps over the network. Please note that restoring deep-crust COMPUTE UNITS requires significant processing power. 
 
 Monitor your jobs via the 'jobs' terminal command. Let Alan know if the mainframe starts throwing errors about corrupted 'Node Alpha' compilations again.`,
         unlockCondition: { type: 'restoration', threshold: 5 },

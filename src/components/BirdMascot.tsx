@@ -18,29 +18,31 @@ const BirdMascot: React.FC<BirdMascotProps> = ({ message, onClick, size = 'norma
         return () => clearInterval(blinkInterval);
     }, []);
 
-    const birdIdle = `  //\\
- (o.o)         
+    const birdIdle = `  //\\  
+ (o.o) 
 (  _  )
 -"-"-"-`;
 
-    const birdBlinking = `  //\\
- (-.-)         
+    const birdBlinking = `  //\\  
+ (-.-) 
 (  _  )
 -"-"-"-`;
 
-    const birdActive = `  //\\
- (>O<) *${message}*
+    const birdActiveBody = `  //\\  
+ (>O<) 
 (  _  )
 -"-"-"-`;
 
-    const currentMascot = message ? birdActive : (birdBlink ? birdBlinking : birdIdle);
+    const currentMascotBody = message ? birdActiveBody : (birdBlink ? birdBlinking : birdIdle);
 
     return (
         <div
             onClick={onClick}
             style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
                 cursor: onClick ? 'pointer' : 'default',
-                whiteSpace: 'pre',
                 fontFamily: 'var(--font-mono)',
                 fontSize: size === 'small' ? '0.45rem' : undefined,
                 lineHeight: size === 'small' ? '1.1' : '1.2',
@@ -49,7 +51,17 @@ const BirdMascot: React.FC<BirdMascotProps> = ({ message, onClick, size = 'norma
                 userSelect: 'none',
             }}
         >
-            {currentMascot}
+            <div style={{ whiteSpace: 'pre' }}>{currentMascotBody}</div>
+            {message && (
+                <div style={{ 
+                    fontStyle: 'italic', 
+                    fontSize: size === 'small' ? '0.4rem' : '0.8rem',
+                    opacity: 0.9,
+                    animation: 'blink 1.5s infinite'
+                }}>
+                    *{message}*
+                </div>
+            )}
         </div>
     );
 };

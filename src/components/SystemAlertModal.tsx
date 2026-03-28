@@ -1,16 +1,34 @@
 import { useGameState } from '../context/GameStateContext';
 import { useSound } from '../hooks/useSound';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+
+const AUTO_DISMISS_MS = 5000;
 
 const SystemAlertModal: React.FC = () => {
     const { activeAlert, dismissAlert } = useGameState();
     const { playSound } = useSound();
+    const [progress, setProgress] = useState(100);
 
     useEffect(() => {
         if (activeAlert) {
             playSound('alert');
+            setProgress(100);
+
+            const startTime = Date.now();
+            const interval = setInterval(() => {
+                const elapsed = Date.now() - startTime;
+                const remaining = Math.max(0, 100 - (elapsed / AUTO_DISMISS_MS) * 100);
+                setProgress(remaining);
+
+                if (elapsed >= AUTO_DISMISS_MS) {
+                    dismissAlert();
+                    clearInterval(interval);
+                }
+            }, 50);
+
+            return () => clearInterval(interval);
         }
-    }, [activeAlert, playSound]);
+    }, [activeAlert, playSound, dismissAlert]);
 
     if (!activeAlert) return null;
 
@@ -34,7 +52,8 @@ const SystemAlertModal: React.FC = () => {
             boxShadow: `0 0 15px ${getColor(activeAlert.type)}55`,
             zIndex: 10000,
             fontFamily: 'var(--font-mono)',
-            animation: 'slideIn 0.3s ease-out'
+            animation: 'slideIn 0.3s ease-out',
+            overflow: 'hidden'
         }}>
             <style>
                 {`
@@ -90,6 +109,21 @@ const SystemAlertModal: React.FC = () => {
                         [ ACKNOWLEDGE ]
                     </button>
                 </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div style={{
+                height: '4px',
+                width: '100%',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                position: 'relative'
+            }}>
+                <div style={{
+                    height: '100%',
+                    width: `${progress}%`,
+                    backgroundColor: getColor(activeAlert.type),
+                    transition: 'width 0.05s linear'
+                }} />
             </div>
         </div>
     );

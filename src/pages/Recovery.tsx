@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { useGameState } from '../context/GameStateContext';
 import JobManager from '../components/JobManager';
+import BirdMascot from '../components/BirdMascot';
 
-interface Fragment {
+interface CodeUnit {
     id: string;
     text: string;
     correctIndex: number;
@@ -12,7 +13,7 @@ interface CorruptedNode {
     id: string;
     name: string;
     traceLimit: number;
-    fragments: Omit<Fragment, 'id'>[];
+    units: Omit<CodeUnit, 'id'>[];
 }
 
 const NODES_DB: CorruptedNode[] = [
@@ -20,7 +21,7 @@ const NODES_DB: CorruptedNode[] = [
         id: 'node-alpha',
         name: 'ANOMALY: J.HARIS_LOG_01',
         traceLimit: 6,
-        fragments: [
+        units: [
             { text: 'I am relegated to being a servant for the elite Tin Can Worshipers.', correctIndex: 0 },
             { text: 'But I found dad\'s old blueprints. I\'m developing a USB virus to disrupt Shell\'s machine cycle.', correctIndex: 1 },
             { text: 'Cross-reference (xref command) the anomaly data (anomaly.dat) with locked-01 to confirm the deployment sequence.', correctIndex: 2 },
@@ -29,9 +30,9 @@ const NODES_DB: CorruptedNode[] = [
     },
     {
         id: 'node-beta',
-        name: 'FRAG: PROJECT_ICARUS',
+        name: 'UNIT: PROJECT_ICARUS',
         traceLimit: 10,
-        fragments: [
+        units: [
             { text: '// SEC_CLEARANCE_REQUIRED: LEVEL_3', correctIndex: 0 },
             { text: 'The Peregrine suits think they can harvest infinite energy.', correctIndex: 1 },
             { text: 'They don\'t realize the sphere is feeding on the structural integrity of Earth-B.', correctIndex: 2 },
@@ -43,7 +44,7 @@ const NODES_DB: CorruptedNode[] = [
         id: 'node-gamma',
         name: 'SYS: CORE_DUMP_0x8A',
         traceLimit: 14,
-        fragments: [
+        units: [
             { text: 'Warning: Mainframe synchronization failed.', correctIndex: 0 },
             { text: 'Attempting to reroute power from auxiliary life support.', correctIndex: 1 },
             { text: 'System override denied by user: ALAN_T.', correctIndex: 2 },
@@ -54,14 +55,12 @@ const NODES_DB: CorruptedNode[] = [
     }
 ];
 
-const shuffleFragments = (source: Omit<Fragment, 'id'>[]): Fragment[] => {
-    let arr = source.map((f, i) => ({ ...f, id: `f-${i}` }));
-    // Simple Fisher-Yates shuffle
+const shuffleUnits = (source: Omit<CodeUnit, 'id'>[]): CodeUnit[] => {
+    let arr = source.map((f, i) => ({ ...f, id: `u-${i}` }));
     for (let i = arr.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [arr[i], arr[j]] = [arr[j], arr[i]];
     }
-    // Very tiny chance it shuffles correctly right off the bat, usually fine
     return arr;
 };
 
@@ -69,7 +68,7 @@ const Recovery: React.FC = () => {
     const { compiledNodes, compileNode, archiveRestoration } = useGameState();
 
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-    const [fragments, setFragments] = useState<Fragment[]>([]);
+    const [units, setUnits] = useState<CodeUnit[]>([]);
     const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
     const [traceCount, setTraceCount] = useState(0);
     const [mascotMessage, setMascotMessage] = useState<string | null>(null);
@@ -84,7 +83,6 @@ const Recovery: React.FC = () => {
     const activeNode = NODES_DB.find(n => n.id === selectedNodeId);
     const isCompiled = selectedNodeId ? compiledNodes.includes(selectedNodeId) : false;
 
-    // Load a node
     const loadNode = (nodeId: string) => {
         const node = NODES_DB.find(n => n.id === nodeId);
         if (!node) return;
@@ -94,10 +92,9 @@ const Recovery: React.FC = () => {
         setTraceCount(0);
 
         if (compiledNodes.includes(nodeId)) {
-            // Unscrambled
-            setFragments(node.fragments.map((f, i) => ({ ...f, id: `f-${i}` })));
+            setUnits(node.units.map((u, i) => ({ ...u, id: `u-${i}` })));
         } else {
-            setFragments(shuffleFragments(node.fragments));
+            setUnits(shuffleUnits(node.units));
             mascotSay("BREAK IT DOWN!");
         }
     };
@@ -108,26 +105,23 @@ const Recovery: React.FC = () => {
         if (selectedIdx === null) {
             setSelectedIdx(idx);
         } else {
-            // Swap
-            const newFrags = [...fragments];
-            const temp = newFrags[selectedIdx];
-            newFrags[selectedIdx] = newFrags[idx];
-            newFrags[idx] = temp;
+            const newUnits = [...units];
+            const temp = newUnits[selectedIdx];
+            newUnits[selectedIdx] = newUnits[idx];
+            newUnits[idx] = temp;
 
             const newTrace = traceCount + 1;
             setTraceCount(newTrace);
-            setFragments(newFrags);
+            setUnits(newUnits);
             setSelectedIdx(null);
 
-            // Check Win
-            const isWin = newFrags.every((f, i) => f.correctIndex === i);
+            const isWin = newUnits.every((u, i) => u.correctIndex === i);
             if (isWin) {
                 compileNode(activeNode.id);
                 mascotSay("BINGO! NODE COMPILED.");
             } else if (newTrace >= activeNode.traceLimit) {
-                // Trace maxed out, scramble!
                 mascotSay("TRACE DETECTED! SCRAMBLING!");
-                setFragments(shuffleFragments(activeNode.fragments));
+                setUnits(shuffleUnits(activeNode.units));
                 setTraceCount(0);
             } else {
                 mascotSay("SWAPPED.");
@@ -135,12 +129,11 @@ const Recovery: React.FC = () => {
         }
     };
 
-    const currentAlignment = fragments.filter((f, i) => f.correctIndex === i).length;
-    const alignPercent = fragments.length > 0 ? Math.floor((currentAlignment / fragments.length) * 100) : 0;
+    const currentAlignment = units.filter((u, i) => u.correctIndex === i).length;
+    const alignPercent = units.length > 0 ? Math.floor((currentAlignment / units.length) * 100) : 0;
 
     return (
         <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto', fontFamily: 'var(--font-mono)' }}>
-
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '1px solid var(--color-primary)', paddingBottom: '1rem', marginBottom: '2rem' }}>
                 <div>
                     <h2 style={{ color: 'var(--color-text)', margin: 0 }}>
@@ -150,17 +143,14 @@ const Recovery: React.FC = () => {
                         Current Global Restoration: {Math.floor(archiveRestoration)}%
                     </div>
                 </div>
-
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '2rem', alignItems: 'start' }}>
-                {/* LEFT COLUMN: MANUAL COMPILATION */}
                 <div style={{ border: '1px solid var(--color-primary-dim)', padding: '1.5rem', backgroundColor: 'rgba(56, 163, 160, 0.02)' }}>
                     {!selectedNodeId ? (
-                        // NODE SELECTOR
                         <div>
                             <p style={{ color: 'var(--color-primary-dim)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
-                                [SYSTEM] SELECT DETECTED CORRUPTED ANOMALY FRAGMENTS FOR PROTOCOL DESCRAMBLING:
+                                [SYSTEM] SELECT DETECTED CORRUPTED ANOMALY UNITS FOR PROTOCOL DESCRAMBLING:
                             </p>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                 {NODES_DB.map(node => {
@@ -189,7 +179,6 @@ const Recovery: React.FC = () => {
                             </div>
                         </div>
                     ) : (
-                        // COMPILE UI
                         <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
                                 <button onClick={() => setSelectedNodeId(null)} style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', backgroundColor: 'transparent', color: 'var(--color-primary)', border: '1px solid var(--color-primary)', cursor: 'pointer' }}>
@@ -197,6 +186,9 @@ const Recovery: React.FC = () => {
                                 </button>
                             </div>
 
+                            <div style={{ position: 'relative', height: '50px', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '1rem' }}>
+                                <BirdMascot message={mascotMessage} size="small" />
+                            </div>
                             <div style={{ marginBottom: '2rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--color-primary-dim)', backgroundColor: 'rgba(56, 163, 160, 0.05)', padding: '1rem', border: '1px solid var(--color-primary-dim)' }}>
                                 <div>
                                     {isCompiled ? (
@@ -218,14 +210,14 @@ const Recovery: React.FC = () => {
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                {fragments.map((frag, idx) => {
+                                {units.map((u, idx) => {
                                     const isSelected = selectedIdx === idx;
-                                    const isCorrect = isCompiled; // only glow when fully compiled
-                                    const isAligned = !isCompiled && frag.correctIndex === idx;
+                                    const isCorrect = isCompiled; 
+                                    const isAligned = !isCompiled && u.correctIndex === idx;
 
                                     return (
                                         <div
-                                            key={frag.id}
+                                            key={u.id}
                                             onClick={() => handleSelect(idx)}
                                             style={{
                                                 padding: '1rem',
@@ -241,7 +233,7 @@ const Recovery: React.FC = () => {
                                             }}
                                         >
                                             <span style={{ opacity: 0.5, marginRight: '1rem', fontSize: '0.7rem' }}>BLOCK_{(idx + 1).toString().padStart(2, '0')}</span>
-                                            {frag.text}
+                                            {u.text}
                                         </div>
                                     );
                                 })}
@@ -250,12 +242,11 @@ const Recovery: React.FC = () => {
                     )}
                 </div>
 
-                {/* RIGHT COLUMN: JOB MANAGER */}
                 <div style={{ border: '1px solid var(--color-primary-dim)', padding: '1.5rem', backgroundColor: 'rgba(56, 163, 160, 0.02)' }}>
                     <JobManager />
                     <div style={{ marginTop: '2rem', fontSize: '0.7rem', color: 'var(--color-primary-dim)', lineHeight: '1.4' }}>
                         <p>[INFO] Background recovery jobs run asynchronously. You can navigate away from this page while they process. System alerts will notify you upon completion.</p>
-                        <p>[INFO] Manual compilation provides an immediate, large restoration boost but requires high-focus technician time.</p>
+                        <p>[INFO] Manual compilation provides an immediate, large restoration boost but requires high-focus technician time. Yields significant COMPUTE UNITS upon success.</p>
                     </div>
                 </div>
             </div>

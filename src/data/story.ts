@@ -151,5 +151,46 @@ I found it. A meteorite with a crystalline lattice so complex it defies terrestr
 AUTHOR: Nova Systems Board
 
 The surface is lost to the Tin Can Worshipers and Canamerican farmers. We are enacting the Quiet Separation. Retreat to the mountain facilities. Our tech will cater to our every need. Leave the simpletons to their squalor. Do not let Isaac's daughter interfere.`
+  },
+  {
+    id: 'hidden-alpha',
+    name: 'CORE_PROTOCOL_ALPHA.log',
+    type: 'hidden',
+    content: `[RECONSTRUCTED CIPHER DATA]
+DATE: 2150
+AUTHOR: Unknown Analyst
+SUBJECT: The Peregrine Initiative
+
+The Peregrine suits think they can harvest infinite energy. They don't realize the sphere is feeding on the structural integrity of Earth-B. Every time they spool up the reactor, a city block falls into the void. This system, PRGN_OS, is the only thing tracking the decay.`,
+  },
+  {
+    id: 'hidden-beta',
+    name: 'CORE_PROTOCOL_BETA.log',
+    type: 'hidden',
+    content: `[RECONSTRUCTED CIPHER DATA]
+DATE: 2155
+AUTHOR: Isaac Latham (Archival Fragment)
+
+I've built the foundation. The journals are the key. If the Shell ever breaks through the cellar, the archive must be the first thing to be encrypted. My daughter, Sarah, is the failsafe. The name Latham must mean more than just a family legacy; it must be a beacon.`,
+  },
+  {
+    id: 'hidden-gamma',
+    name: 'CORE_PROTOCOL_GAMMA.log',
+    type: 'hidden',
+    content: `[RECONSTRUCTED CIPHER DATA]
+DATE: 2160
+AUTHOR: PRGN_OS System Log
+
+Archival protocols are functioning within nominal parameters. Preservation of human history is the core directive. However, the system is exhibiting 'anomalous focus' on the Latham lineage. Logic suggests a deep-coded preference for particular organic operators. The archive is safe, for now.`,
+  },
+  {
+    id: 'hidden-delta',
+    name: 'CORE_PROTOCOL_DELTA.log',
+    type: 'hidden',
+    content: `[RECONSTRUCTED CIPHER DATA]
+DATE: 2165
+AUTHOR: System Refactor Diagnostic
+
+The refactor ritual is complete. Permanent buffs applied to strike vectors and mining rates. To rebuild without changing purpose is the pure act of creation. The system resets, but the progress remains. We must keep growing if we are to survive the Quiet Separation.`,
   }
 ];

@@ -1,16 +1,23 @@
 import React from 'react';
 import { useDungeon } from '../context/DungeonContext';
 import { useNavigate } from 'react-router-dom';
+import { useGameState } from '../context/GameStateContext';
 import BirdMascot from './BirdMascot';
+import { useDraggable } from '../hooks/useDraggable';
 
 const PinnedDungeon: React.FC = () => {
-    const { 
-        grid, playerPos, enemies, loot, hp, maxHp, floor, logs, 
-        isAutoPlaying, isPinned, setIsPinned, mascotMessage 
-    } = useDungeon();
+    const { breaches, activeBreachId, togglePin } = useDungeon();
+    const { computeUnits, pinnedPositions, updatePinnedPosition } = useGameState();
     const navigate = useNavigate();
 
-    if (!isPinned) return null;
+    const initialPos = pinnedPositions?.breach || { x: window.innerWidth - 200, y: 20 };
+    const { pos, onMouseDown, isDragging } = useDraggable('breach', initialPos, updatePinnedPosition);
+
+    const activeBreach = breaches.find(b => b.id === activeBreachId) || breaches[0];
+    
+    if (!activeBreach || !activeBreach.isPinned) return null;
+
+    const { grid, playerPos, enemies, loot, hp, maxHp, floor, logs, isAutoPlaying, mascotMessage } = activeBreach;
 
     const renderMiniMap = () => {
         if (!grid.length) return '';
@@ -22,7 +29,7 @@ const PinnedDungeon: React.FC = () => {
 
         const miniGrid: string[][] = [];
         for (let y = startY; y < startY + VIEW_SIZE; y++) {
-            const row = grid[y].slice(startX, startX + VIEW_SIZE);
+            const row = grid[y]?.slice(startX, startX + VIEW_SIZE) || [];
             miniGrid.push([...row]);
         }
 
@@ -49,8 +56,8 @@ const PinnedDungeon: React.FC = () => {
         <div 
             style={{
                 position: 'fixed',
-                top: '20px',
-                right: '20px',
+                left: `${pos.x}px`,
+                top: `${pos.y}px`,
                 width: '185px',
                 backgroundColor: 'rgba(5, 8, 10, 0.95)',
                 border: '1px solid var(--color-accent)',
@@ -62,17 +69,21 @@ const PinnedDungeon: React.FC = () => {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '0.3rem',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease'
+                cursor: isDragging ? 'grabbing' : 'grab',
+                opacity: isDragging ? 0.8 : 1,
+                transition: isDragging ? 'none' : 'opacity 0.3s ease'
             }}
-            onClick={() => navigate('/dungeon')}
+            onMouseDown={onMouseDown}
+            onClick={() => {
+                if (!isDragging) navigate('/dungeon');
+            }}
         >
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-accent)', paddingBottom: '0.3rem', marginBottom: '0.2rem' }}>
                 <span style={{ color: 'var(--color-accent)', fontWeight: 'bold' }}>BREACH_PIN</span>
                 <button 
                     onClick={(e) => {
                         e.stopPropagation();
-                        setIsPinned(false);
+                        togglePin(activeBreach.id);
                     }}
                     style={{ background: 'transparent', border: 'none', color: 'var(--color-primary-dim)', cursor: 'pointer', padding: 0, fontSize: '0.8rem' }}
                 >
@@ -100,6 +111,9 @@ const PinnedDungeon: React.FC = () => {
                     <span style={{ color: hp < maxHp * 0.3 ? 'var(--color-alert)' : 'var(--color-primary)' }}>
                         HP: {hp}/{maxHp}
                     </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-accent)' }}>
+                    <span>CU: {computeUnits.toFixed(2)}</span>
                 </div>
                 <div style={{ fontSize: '0.64rem', color: 'var(--color-primary-dim)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
                     &gt; {logs[logs.length - 1]}
