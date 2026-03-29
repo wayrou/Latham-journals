@@ -8,7 +8,8 @@ export type CrawlerSpec = 'fighter' | 'rogue' | 'miner' | 'summoner';
 
 export interface LogEntry {
     type: 'input' | 'output' | 'error' | 'system';
-    content: string | React.ReactNode;
+    content: string;
+    specialType?: 'help' | 'ascii-grid';
 }
 
 export interface RefactorBonus {
@@ -201,8 +202,12 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     isMetaMapPinned: !!parsed.isMetaMapPinned,
                     isWalletsPinned: !!parsed.isWalletsPinned,
                     isTerminalPinned: !!parsed.isTerminalPinned,
-                    terminalHistory: parsed.terminalHistory || defaultState.terminalHistory,
-                    pinnedPositions: parsed.pinnedPositions || defaultState.pinnedPositions
+                    terminalHistory: (Array.isArray(parsed.terminalHistory) ? parsed.terminalHistory : defaultState.terminalHistory)
+                        .map((h: any) => ({
+                            ...h,
+                            content: typeof h.content === 'string' ? h.content : '[RECOVERY ERROR: DATA CORRUPTED]'
+                        })),
+                    pinnedPositions: { ...defaultState.pinnedPositions, ...(parsed.pinnedPositions || {}) }
                 };
             } catch (e) {
                 console.error("PRGN_OS: Failed to parse saved state, reverting to default.", e);

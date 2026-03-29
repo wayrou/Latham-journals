@@ -8,7 +8,7 @@ const Dungeon: React.FC = () => {
     const { 
         breaches, metaMap, activeBreachId, setActiveBreachId,
         movePlayer, togglePause, toggleMinimize, togglePin, terminateBreach,
-        initNewBreach, restartBreach, setBreachSpec
+        initNewBreach, restartBreach, setBreachSpec, nextFloor, locksOpened, currentFloor
     } = useDungeon();
 
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -105,7 +105,7 @@ const Dungeon: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                     <h2 style={{ margin: 0 }}>PRGN_OS // MULTI-BREACH PROTOCOL</h2>
                     <div style={{ color: 'var(--color-accent)', fontSize: '0.9rem', padding: '2px 8px', border: '1px solid var(--color-accent)' }}>
-                        CAPACITY: {breaches.length} / {crawlerStats.maxBreachWindows}
+                        FLOOR: {currentFloor} | CAPACITY: {breaches.length} / {crawlerStats.maxBreachWindows}
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -308,11 +308,28 @@ const Dungeon: React.FC = () => {
                                             {b.logs.map((L, i) => <div key={i} style={{ opacity: 1 - (b.logs.length - 1 - i) * 0.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>&gt; {L}</div>)}
                                         </div>
                                     </div>
-                                    <div style={{ marginTop: 'auto', fontSize: '0.7rem', color: 'var(--color-primary-dim)' }}>
+                                    <div style={{ marginTop: 'auto', fontSize: '0.7rem', color: 'var(--color-primary-dim)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                         {b.spec === 'summoner' && b.daemons && b.daemons.length > 0 && (
-                                            <div style={{ color: 'var(--color-accent)', marginBottom: '4px' }}>DAEMONS ACTIVE: {b.daemons.length}</div>
+                                            <div style={{ color: 'var(--color-accent)' }}>DAEMONS ACTIVE: {b.daemons.length}</div>
                                         )}
-                                        {b.isAutoPlaying ? '[ PEREGRINE_AUTO_CRAWL: ACTIVE ]' : '[ MANUAL_OVERRIDE: STANDBY ]'}
+                                        {locksOpened.length >= 3 && (
+                                            <button 
+                                                onClick={() => nextFloor()}
+                                                style={{
+                                                    padding: '4px 8px',
+                                                    backgroundColor: 'var(--color-accent)',
+                                                    color: 'var(--color-bg)',
+                                                    border: 'none',
+                                                    cursor: 'pointer',
+                                                    fontWeight: 'bold',
+                                                    animation: 'blink 1s infinite',
+                                                    fontSize: '0.75rem'
+                                                }}
+                                            >
+                                                [ ! ] NEXT FLOOR READY
+                                            </button>
+                                        )}
+                                        <div>{b.isAutoPlaying ? '[ PEREGRINE_AUTO_CRAWL: ACTIVE ]' : '[ MANUAL_OVERRIDE: STANDBY ]'}</div>
                                     </div>
                                 </div>
                             </div>

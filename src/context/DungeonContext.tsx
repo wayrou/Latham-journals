@@ -52,6 +52,10 @@ interface DungeonContextType {
     breaches: BreachInstance[];
     metaMap: Room[][];
     activeBreachId: string | null;
+    currentFloor: number;
+    keysFound: string[];
+    locksOpened: string[];
+    roomMarkers: Record<string, string>;
     setActiveBreachId: (id: string | null) => void;
     movePlayer: (id: string, dx: number, dy: number, isManual?: boolean) => void;
     togglePause: (id: string) => void;
@@ -62,6 +66,8 @@ interface DungeonContextType {
     mascotSay: (id: string, msg: string) => void;
     restartBreach: (id: string) => void;
     setBreachSpec: (id: string, spec: CrawlerSpec) => void;
+    toggleMarker: (rx: number, ry: number, label?: string) => void;
+    nextFloor: () => void;
 }
 
 const DungeonContext = createContext<DungeonContextType | undefined>(undefined);
@@ -88,7 +94,11 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const { playSound } = useSound();
 
     const [breaches, setBreaches] = useState<BreachInstance[]>([]);
-    const [metaMap, setMetaMap] = useState<Room[][]>(() => generateMetaMap());
+    const [currentFloor, setCurrentFloor] = useState(1);
+    const [metaMap, setMetaMap] = useState<Room[][]>(() => generateMetaMap(1));
+    const [keysFound, setKeysFound] = useState<string[]>([]);
+    const [locksOpened, setLocksOpened] = useState<string[]>([]);
+    const [roomMarkers, setRoomMarkers] = useState<Record<string, string>>({});
     const [activeBreachId, setActiveBreachId] = useState<string | null>(null);
     const mascotTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
     const gameStateRef = useRef({ getDegradation, addCipherFragment, refactorBonuses, crawlerStats });
@@ -233,6 +243,15 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 minerTickAccum: 0
             };
         }));
+
+        setMetaMap(prevMap => {
+            const newMap = [...prevMap];
+            const row = [...newMap[ry]];
+            row[rx] = { ...row[rx], isDiscovered: true };
+            newMap[ry] = row;
+            return newMap;
+        });
+
         playSound('boot');
     }, [crawlerStats.maxHpBoost, playSound, metaMap]);
 
@@ -324,6 +343,20 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 minerTickAccum: 0
             };
             updatedRoom = { ...nextRoom, isDiscovered: true };
+            
+            // If current room was cleared before leaving, mark it
+            if (b.enemies.length === 0 && b.loot.length === 0) {
+                const oldRoom = currentMap[b.roomY][b.roomX];
+                if (!oldRoom.isCleared) {
+                    setMetaMap(prevMap => {
+                        const newMap = [...prevMap];
+                        const row = [...newMap[b.roomY]];
+                        row[b.roomX] = { ...row[b.roomX], isCleared: true };
+                        newMap[b.roomY] = row;
+                        return newMap;
+                    });
+                }
+            }
 
             // 8% chance to find a bricked node on transition
             if (Math.random() < 0.08) {
@@ -338,7 +371,29 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 return { nextBreach, cu: 0, res: 0, sounds: ['success'], updatedRoom, spawnBrickedNode: node };
             }
 
-            return { nextBreach, cu: 0, res: 0, sounds: [], updatedRoom };
+            // Check for special rooms (Keys/Locks)
+            const currentRoom = currentMap[nextY][nextX];
+            let newLogs = nextBreach.logs;
+            if (currentRoom.specialType) {
+                if (currentRoom.specialType.startsWith('K')) {
+                    const keyId = currentRoom.specialType;
+                    if (!keysFound.includes(keyId)) {
+                        setKeysFound(prev => [...prev, keyId]);
+                        newLogs = [...newLogs, `[SYSTEM] KEY ${keyId} COLLECTED.`];
+                        sounds.push('success');
+                    }
+                } else if (currentRoom.specialType.startsWith('L')) {
+                    const lockId = currentRoom.specialType;
+                    const requiredKey = 'K' + lockId.slice(1);
+                    if (keysFound.includes(requiredKey) && !locksOpened.includes(lockId)) {
+                        setLocksOpened(prev => [...prev, lockId]);
+                        newLogs = [...newLogs, `[SYSTEM] LOCK ${lockId} OPENED.`];
+                        sounds.push('boot');
+                    }
+                }
+            }
+
+            return { nextBreach: { ...nextBreach, logs: newLogs }, cu: 0, res: 0, sounds: [], updatedRoom };
         }
 
         // Combat — apply degradation to enemy stats
@@ -528,15 +583,23 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     }
 
                     // === MINER: stay in cleared rooms, generate passive CU ===
+                    let minerMult = 1;
+                    if (updatedB.spec === 'miner') {
+                        const currentRoom = metaMap[updatedB.roomY][updatedB.roomX];
+                        if (currentRoom.specialType === 'mining_boost') {
+                            minerMult = 2;
+                        }
+                    }
+
                     if (updatedB.spec === 'miner' && updatedB.enemies.length === 0 && updatedB.loot.length === 0) {
                         const newAccum = (updatedB.minerTickAccum || 0) + 1;
                         const yieldAmt = gameStateRef.current.crawlerStats.minerYield || 3;
                         if (newAccum >= 3) { // Every 3 ticks = passive yield
-                            effects.push({ cu: yieldAmt, res: 0, sounds: [] });
+                            effects.push({ cu: yieldAmt * minerMult, res: 0, sounds: [] });
                             return { 
                                 ...updatedB, 
                                 minerTickAccum: 0,
-                                logs: [...updatedB.logs.slice(-4), `[MINER: +${yieldAmt} CU passive yield]`],
+                                logs: [...updatedB.logs.slice(-4), `[MINER: +${yieldAmt * minerMult} CU ${minerMult > 1 ? '(BOOSTED)' : 'passive'}]`],
                                 isAutoPlaying: true 
                             };
                         }
@@ -740,21 +803,79 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 if (e.res) addRestoration(e.res);
                 e.sounds.forEach(s => playSound(s as any));
             });
+
+            // Check for newly cleared rooms in metadata
+            setBreaches(prev => {
+                prev.forEach(b => {
+                    if (b.enemies.length === 0 && b.loot.length === 0) {
+                        setMetaMap(prevMap => {
+                            if (prevMap[b.roomY][b.roomX].isCleared) return prevMap;
+                            const newMap = [...prevMap];
+                            const row = [...newMap[b.roomY]];
+                            row[b.roomX] = { ...row[b.roomX], isCleared: true, isDiscovered: true };
+                            newMap[b.roomY] = row;
+                            return newMap;
+                        });
+                    }
+                });
+                return prev;
+            });
         }, Math.max(75, 450 - ((crawlerStats.speedBoost || 0) * 75)));
 
         return () => clearInterval(aiInterval);
-    }, [activeBreachId, crawlerStats.speedBoost, addComputeUnits, addRestoration, playSound, processBreachMove, metaMap]);
+    }, [activeBreachId, crawlerStats.speedBoost, addComputeUnits, addRestoration, playSound, processBreachMove, metaMap, keysFound, locksOpened]);
+
+    const toggleMarker = useCallback((rx: number, ry: number, label: string = 'MARK') => {
+        const key = `${rx},${ry}`;
+        setRoomMarkers(prev => {
+            const next = { ...prev };
+            if (next[key]) delete next[key];
+            else next[key] = label;
+            return next;
+        });
+    }, []);
+
+    const nextFloor = useCallback(() => {
+        if (locksOpened.length < 3) return;
+        
+        const nextF = currentFloor + 1;
+        setCurrentFloor(nextF);
+        const newMap = generateMetaMap(nextF);
+        setMetaMap(newMap);
+        setKeysFound([]);
+        setLocksOpened([]);
+        setRoomMarkers({});
+        
+        // Move all crawlers to the start of the new map (centerish)
+        setBreaches(prev => prev.map(b => {
+            const rx = 4 + Math.floor(Math.random() * 2);
+            const ry = 4 + Math.floor(Math.random() * 2);
+            const startRoom = newMap[ry][rx];
+            return {
+                ...b,
+                roomX: rx,
+                roomY: ry,
+                grid: startRoom.grid,
+                playerPos: startRoom.playerSpawn,
+                stairsPos: startRoom.stairsPos,
+                enemies: [...startRoom.enemies],
+                loot: [...startRoom.loot],
+                visitedRooms: [`${rx},${ry}`],
+                logs: [...b.logs, `[TRANSITIONING TO FLOOR ${nextF}]`]
+            };
+        }));
+        playSound('boot');
+    }, [locksOpened, currentFloor, playSound]);
 
     return (
         <DungeonContext.Provider value={{
-            breaches, metaMap, activeBreachId, setActiveBreachId,
+            breaches, metaMap, activeBreachId, currentFloor, keysFound, locksOpened, roomMarkers,
+            setActiveBreachId,
             movePlayer, togglePause, toggleMinimize, togglePin, terminateBreach,
-            initNewBreach, mascotSay, restartBreach, setBreachSpec
-        }}>
-            {children}
-        </DungeonContext.Provider>
+            initNewBreach, mascotSay, restartBreach, setBreachSpec, toggleMarker, nextFloor
+        }}>{children}</DungeonContext.Provider>
     );
-};
+}
 
 export const useDungeon = () => {
     const context = useContext(DungeonContext);

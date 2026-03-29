@@ -86,21 +86,34 @@ const PinnedTerminal: React.FC = () => {
                 fontFamily: 'var(--font-mono)',
                 userSelect: 'text'
             }}>
-                {!hackingGame && history.map((entry, i) => (
-                    <div key={i} style={{
-                        marginBottom: '4px',
-                        color: entry.type === 'error' ? 'var(--color-alert)' :
-                            entry.type === 'system' ? 'var(--color-accent)' :
-                                entry.type === 'input' ? 'var(--color-text)' : 'var(--color-primary)'
-                    }}>
-                        {typeof entry.content === 'string' ? 
+                {!hackingGame && history.map((entry, i) => {
+                    if (entry.specialType === 'help') {
+                         return (
+                            <div key={i} style={{ marginBottom: '0.8rem', color: 'var(--color-primary)' }}>
+                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{entry.content}</pre>
+                            </div>
+                        );
+                    }
+                    if (entry.specialType === 'ascii-grid') {
+                         return (
+                            <div key={i} style={{ marginBottom: '0.8rem', color: 'var(--color-text)' }}>
+                                <pre style={{ margin: 0, lineHeight: '1', letterSpacing: '2px', fontFamily: 'inherit' }}>{entry.content}</pre>
+                            </div>
+                        );
+                    }
+                    return (
+                        <div key={i} style={{
+                            marginBottom: '4px',
+                            color: entry.type === 'error' ? 'var(--color-alert)' :
+                                entry.type === 'system' ? 'var(--color-accent)' :
+                                    entry.type === 'input' ? 'var(--color-text)' : 'var(--color-primary)'
+                        }}>
                             <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
                                 {entry.type === 'input' ? `> ${entry.content}` : entry.content}
-                            </pre> 
-                            : entry.content
-                        }
-                    </div>
-                ))}
+                            </pre>
+                        </div>
+                    );
+                })}
                 
                 {hackingGame && (
                     <div style={{ color: 'var(--color-accent)' }}>

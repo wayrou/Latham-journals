@@ -1,5 +1,4 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
-import React from 'react';
 import { useGameState, type LogEntry } from '../context/GameStateContext';
 import { useDungeon } from '../context/DungeonContext';
 import { useSound } from './useSound';
@@ -10,13 +9,14 @@ import { generateHackingGame, getSimilarity, type HackingGame } from '../utils/h
 export const useTerminal = () => {
     const { 
         unlockedFiles, archiveRestoration, computeUnits,
-        spendComputeUnits, codexAgents, addCodexAgent, 
+        codexAgents, addCodexAgent, 
         getUpgradeCost, upgradeCrawler,
-        reduceClutter, toggleAgentsPinned, toggleTerminalPinned, markFileAsRead, 
-        unlockFile, addRestoration, systemClutter, 
+        reduceClutter, toggleAgentsPinned, toggleTerminalPinned, toggleMetaMapPinned, toggleWalletsPinned, 
+        markFileAsRead, unlockFile, addRestoration, systemClutter, 
         initiateRefactor, crawlerStats,
         terminalHistory, setTerminalHistory, terminalInput, setTerminalInput,
-        defaultCrawlerSpec, setDefaultSpec
+        setDefaultSpec, scrapBrickedNode, repairBrickedNode, activeBrickedNode,
+        getCipherProgress, attemptCipherUnlock
     } = useGameState();
     const { metaMap, breaches } = useDungeon();
     const { playSound } = useSound();
@@ -30,8 +30,8 @@ export const useTerminal = () => {
         endRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [terminalHistory]);
 
-    const print = useCallback((content: string | React.ReactNode, type: LogEntry['type'] = 'output') => {
-        setTerminalHistory(prev => [...prev, { type, content }]);
+    const print = useCallback((content: string, type: LogEntry['type'] = 'output', specialType?: LogEntry['specialType']) => {
+        setTerminalHistory(prev => [...prev, { type, content, specialType }]);
     }, [setTerminalHistory]);
 
     const clear = useCallback(() => setTerminalHistory([]), [setTerminalHistory]);
@@ -54,24 +54,29 @@ export const useTerminal = () => {
         switch (command) {
             case 'help':
                 print(
-                    <>
-                        <div style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>SYSTEM COMMANDS:</div>
-                        <div>- <strong>help</strong>: Show this message</div>
-                        <div>- <strong>ls / dir</strong>: List accessible files</div>
-                        <div>- <strong>read [filename]</strong>: Display file content</div>
-                        <div>- <strong>clear</strong>: Clear terminal screen</div>
-                        <div>- <strong>status</strong>: View comprehensive system status & stats</div>
-                        <div>- <strong>defrag [amount]</strong>: Spend CU to reduce system clutter</div>
-                        <div style={{ color: 'var(--color-primary)', fontWeight: 'bold', marginTop: '4px' }}>CRYPTANALYSIS:</div>
-                        <div>- <strong>unlock [filename] [password]</strong>: Decrypt password-locked files</div>
-                        <div>- <strong>decrypt [filename] [type] [key]</strong>: Run cipher decryption</div>
-                        <div style={{ color: 'var(--color-primary)', fontWeight: 'bold', marginTop: '4px' }}>CODEX:</div>
-                        <div>- <strong>codex</strong>: Access upgrades & agent management</div>
-                        <div>- <strong>codex spec [type]</strong>: Set default crawler class</div>
-                        <div style={{ color: 'var(--color-primary)', fontWeight: 'bold', marginTop: '4px' }}>INTERFACE:</div>
-                        <div>- <strong>agents --pin</strong>: Toggle agent status window</div>
-                        <div>- <strong>terminal --pin</strong>: Toggle global pinned terminal</div>
-                    </>
+                    `SYSTEM COMMANDS:\n` +
+                    `- help                : Show this message\n` +
+                    `- ls / dir            : List accessible files\n` +
+                    `- read [filename]     : Display file content\n` +
+                    `- clear               : Clear terminal screen\n` +
+                    `- status              : View comprehensive system status & stats\n` +
+                    `- metamap [--pin]     : View/Toggle global dungeon layout\n` +
+                    `- wallets [--pin]     : View/Toggle agent budget trackers\n` +
+                    `- defrag [amount]     : Spend CU to reduce system clutter\n` +
+                    `- bricked             : Manage salvageable node encounters\n\n` +
+                    `CRYPTANALYSIS:\n` +
+                    `- unlock [file] [pass]: Decrypt password-locked files\n` +
+                    `- decrypt [file] [sys]: Run cipher decryption\n` +
+                    `- ciphers             : View fragment progress for Protocols\n` +
+                    `- crack [prot] [pass] : Solve a CORE Protocol cipher\n\n` +
+                    `CODEX:\n` +
+                    `- codex               : Access upgrades & agent management\n` +
+                    `- codex spec [type]   : Set default crawler class\n\n` +
+                    `INTERFACE:\n` +
+                    `- agents --pin        : Toggle agent status window\n` +
+                    `- terminal --pin      : Toggle global pinned terminal`,
+                    'output',
+                    'help'
                 );
                 break;
 
@@ -87,7 +92,7 @@ export const useTerminal = () => {
                     const lockStatus = unlocked ? '[CLEARED]' : '[ENCRYPTED]';
                     return `${d.name.padEnd(20)} ${lockStatus}`;
                 }).join('\n');
-                print(<pre style={{ margin: 0 }}>{listStr}</pre>);
+                print(listStr);
                 break;
             }
 
@@ -116,12 +121,12 @@ export const useTerminal = () => {
                 if (isUnlocked) {
                     markFileAsRead(docToRead.id);
                     if (docToRead.secretContent) {
-                        print(<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{docToRead.secretContent}</pre>);
+                        print(docToRead.secretContent);
                     } else {
-                        print(<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{docToRead.content}</pre>);
+                        print(docToRead.content);
                     }
                 } else {
-                    print(<pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--color-alert)' }}>[SYSTEM] ANOMALOUS ACCESS ATTEMPT LOGGED. THE TRUTH IS FRAGMENTED.</pre>, 'error');
+                    print(`[SYSTEM] ANOMALOUS ACCESS ATTEMPT LOGGED. THE TRUTH IS FRAGMENTED.`, 'error');
                 }
                 break;
             }
@@ -209,7 +214,7 @@ export const useTerminal = () => {
                 }
 
                 print(`APPLYING ${decType.toUpperCase()} DECRYPTION TO ${decFile}...`, 'system');
-                print(<pre style={{ margin: 0, color: 'var(--color-text)' }}>{decryptedText}</pre>, 'output');
+                print(decryptedText);
 
                 const keyMatches = decType === (docToDec.cipherType || 'shift') &&
                     decKey.toUpperCase() === docToDec.cipherKey.toUpperCase();
@@ -235,6 +240,57 @@ export const useTerminal = () => {
                 print(`[COMPUTE] Units: ${computeUnits.toFixed(2)}`);
                 print(`[CLUTTER] Level: ${systemClutter.toFixed(1)}%`);
                 print(`[CRAWLER] LVL:${crawlerStats.baseDmg} DMG | HP:${100 + crawlerStats.maxHpBoost} | SPD:${crawlerStats.speedBoost} | WINDOWS:${crawlerStats.maxBreachWindows}`);
+                if (activeBrickedNode) {
+                    print(`[!] BRICKED NODE DETECTED IN SECTOR ${activeBrickedNode.roomCoords}`, 'system');
+                }
+                break;
+            }
+
+            case 'bricked': {
+                if (!activeBrickedNode) {
+                    print('NO BRICKED NODES DETECTED IN VICINITY.', 'error');
+                } else {
+                    if (args[1] === 'scrap') {
+                        scrapBrickedNode();
+                        print('NODE DISMANTLED. RESOURCES RECOVERED.', 'system');
+                    } else if (args[1] === 'repair') {
+                        if (repairBrickedNode()) {
+                            print('REPAIR SEQUENCE INITIATED.', 'system');
+                        } else {
+                            print('INSUFFICIENT RESOURCES FOR REPAIR.', 'error');
+                        }
+                    } else {
+                        print('--- BRICKED NODE DETECTED ---');
+                        print(`SECTOR: ${activeBrickedNode.roomCoords}`);
+                        print(`REPAIR COST: ${activeBrickedNode.repairCost} CU`);
+                        print(`SCRAP VALUE: ${activeBrickedNode.scrapValue} CU`);
+                        print(`\nUsage: bricked repair | bricked scrap`);
+                    }
+                }
+                break;
+            }
+
+            case 'ciphers': {
+                const progress = getCipherProgress();
+                print('--- CORE PROTOCOL CIPHERS ---');
+                progress.forEach(p => {
+                    print(`${p.name.padEnd(12)}: [${p.found}/${p.required}] FRAGMENTS FOUND`);
+                });
+                break;
+            }
+
+            case 'crack': {
+                if (args.length < 3) {
+                    print('Usage: crack [protocol_name] [key]', 'error');
+                    break;
+                }
+                const protocol = args[1].toUpperCase();
+                const key = args[2];
+                if (attemptCipherUnlock(protocol, key)) {
+                    print(`PROTOCOL ${protocol} BYPASSED. SYSTEM STABILITY INCREASING.`, 'system');
+                } else {
+                    print(`DECRYPTION FAILED. KEY INVALID.`, 'error');
+                }
                 break;
             }
 
@@ -345,6 +401,34 @@ export const useTerminal = () => {
                 } else {
                     print(`ACTIVE AGENTS: ${codexAgents.length}`);
                     codexAgents.forEach(a => print(`- ${a.name}: ${a.strategy} (${a.lastAction || 'IDLE'})`));
+                }
+                break;
+            }
+
+            case 'metamap': {
+                if (args[1] === '--pin') {
+                    toggleMetaMapPinned();
+                    print('METAMAP PIN STATUS TOGGLED.', 'system');
+                } else if (metaMap) {
+                    const gridString = metaMap.map((row, y) => {
+                        return row.map((room, x) => {
+                            const hasBreach = breaches.some(b => b.roomX === x && b.roomY === y);
+                            if (hasBreach) return '@';
+                            if (room.isDiscovered) return room.isBoss ? 'B' : 'X';
+                            return '.';
+                        }).join(' ');
+                    }).join('\n');
+                    print(`--- SECTOR METAMAP ---\n${gridString}`, 'output', 'ascii-grid');
+                }
+                break;
+            }
+
+            case 'wallets': {
+                if (args[1] === '--pin') {
+                    toggleWalletsPinned();
+                    print('WALLETS PIN STATUS TOGGLED.', 'system');
+                } else {
+                    print('WALLETS VIEW ACTIVE.', 'system');
                 }
                 break;
             }

@@ -59,16 +59,34 @@ const TerminalApp: React.FC = () => {
         <div style={{ padding: '1rem', height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
             <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1rem' }}>
                 {hackingGame && renderHackingGrid()}
-                {!hackingGame && history.map((entry, i) => (
-                    <div key={i} style={{
-                        marginBottom: '0.5rem',
-                        color: entry.type === 'error' ? 'var(--color-alert)' :
-                            entry.type === 'system' ? 'var(--color-accent)' :
-                                entry.type === 'input' ? 'var(--color-text)' : 'var(--color-primary)'
-                    }}>
-                        {typeof entry.content === 'string' ? <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)' }}>{entry.content}</pre> : entry.content}
-                    </div>
-                ))}
+                {!hackingGame && history.map((entry, i) => {
+                    if (entry.specialType === 'help') {
+                        return (
+                            <div key={i} style={{ marginBottom: '1rem', color: 'var(--color-primary)' }}>
+                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)' }}>{entry.content}</pre>
+                            </div>
+                        );
+                    }
+                    if (entry.specialType === 'ascii-grid') {
+                        return (
+                            <div key={i} style={{ marginBottom: '1rem', color: 'var(--color-text)' }}>
+                                <pre style={{ margin: 0, lineHeight: '1', letterSpacing: '2px', fontFamily: 'var(--font-mono)' }}>{entry.content}</pre>
+                            </div>
+                        );
+                    }
+                    return (
+                        <div key={i} style={{
+                            marginBottom: '0.5rem',
+                            color: entry.type === 'error' ? 'var(--color-alert)' :
+                                entry.type === 'system' ? 'var(--color-accent)' :
+                                    entry.type === 'input' ? 'var(--color-text)' : 'var(--color-primary)'
+                        }}>
+                            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)' }}>
+                                {entry.type === 'input' ? `> ${entry.content}` : entry.content}
+                            </pre>
+                        </div>
+                    );
+                })}
                 <div ref={endRef} />
             </div>
 

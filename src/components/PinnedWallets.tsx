@@ -1,15 +1,23 @@
 import React from 'react';
 import { useGameState } from '../context/GameStateContext';
+import { useDungeon } from '../context/DungeonContext';
 import { useDraggable } from '../hooks/useDraggable';
-import { Wallet, TrendingUp } from 'lucide-react';
+import { Wallet, TrendingUp, Cpu } from 'lucide-react';
 
 const PinnedWallets: React.FC = () => {
-    const { codexAgents, isWalletsPinned, pinnedPositions, updatePinnedPosition } = useGameState();
+    const { computeUnits, crawlerStats, codexAgents, isWalletsPinned, pinnedPositions, updatePinnedPosition } = useGameState();
+    const { breaches } = useDungeon();
 
     const initialPos = pinnedPositions?.wallets || { x: window.innerWidth - 280, y: 80 };
     const { pos, onMouseDown, isDragging } = useDraggable('wallets', initialPos, updatePinnedPosition);
 
-    if (!isWalletsPinned || codexAgents.length === 0) return null;
+    if (!isWalletsPinned) return null;
+
+    // Calculate CU/sec from active miners
+    const activeMiners = breaches.filter(b => b.spec === 'miner' && !b.isPaused && b.hp > 0).length;
+    const tickDuration = Math.max(75, 450 - ((crawlerStats.speedBoost || 0) * 75));
+    const ticksPerSec = 1000 / tickDuration;
+    const cuPerSec = activeMiners * ((crawlerStats.minerYield || 3) / 3) * ticksPerSec;
 
     return (
         <div 
@@ -31,6 +39,32 @@ const PinnedWallets: React.FC = () => {
                 transition: isDragging ? 'none' : 'opacity 0.3s ease'
             }}
         >
+            <div style={{ 
+                marginBottom: '12px', 
+                padding: '10px', 
+                backgroundColor: 'rgba(56, 163, 160, 0.05)', 
+                border: '1px solid rgba(56, 163, 160, 0.2)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-primary-dim)', fontSize: '0.65rem' }}>
+                    <Cpu size={12} />
+                    TOTAL_COMPUTE_UNITS
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                    <span style={{ fontSize: '1.2rem', color: 'var(--color-text)', fontWeight: 'bold' }}>
+                        {computeUnits.toFixed(2)}
+                    </span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--color-accent)' }}>CU</span>
+                    {cuPerSec > 0 && (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--color-accent)', marginLeft: 'auto' }}>
+                            (+{cuPerSec.toFixed(1)}/s)
+                        </span>
+                    )}
+                </div>
+            </div>
+
             <div style={{ 
                 display: 'flex', 
                 alignItems: 'center', 
