@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useGameState } from '../context/GameStateContext';
 import BirdMascot from './BirdMascot';
 import { useDraggable } from '../hooks/useDraggable';
+import { formatComputeUnits } from '../utils/numberFormat';
 
 const PinnedDungeon: React.FC = () => {
     const { breaches, activeBreachId, togglePin } = useDungeon();
@@ -113,7 +114,7 @@ const PinnedDungeon: React.FC = () => {
                     </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-accent)' }}>
-                    <span>CU: {computeUnits.toFixed(2)}</span>
+                    <span>CU: {formatComputeUnits(computeUnits)}</span>
                 </div>
                 <div style={{ fontSize: '0.64rem', color: 'var(--color-primary-dim)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
                     &gt; {logs[logs.length - 1]}

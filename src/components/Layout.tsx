@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useGameState } from '../context/GameStateContext';
 import { Volume2, VolumeX } from 'lucide-react';
@@ -7,14 +7,44 @@ import PinnedDungeon from './PinnedDungeon';
 import PinnedAgents from './PinnedAgents';
 import PinnedWallets from './PinnedWallets';
 import PinnedMetaMap from './PinnedMetaMap';
+import PinnedDepartments from './PinnedDepartments';
+import PinnedBuild from './PinnedBuild';
+import PinnedBreachCli from './PinnedBreachCli';
+import PinnedLedger from './PinnedLedger';
+import PinnedModules from './PinnedModules';
 import PinnedTerminal from './PinnedTerminal';
+import PinnedInbox from './PinnedInbox';
+import PinnedArchive from './PinnedArchive';
 import { useSound } from '../hooks/useSound';
 
 const Layout: React.FC = () => {
-    const { archiveRestoration, systemClutter, activeBrickedNode } = useGameState();
+    const {
+        archiveRestoration,
+        systemClutter,
+        activeBrickedNode,
+        menuButtonOrder,
+        setMenuButtonOrder,
+        isMainContentMinimized,
+        toggleMainContentMinimized,
+        pinnedPositions,
+        pinnedSizes,
+        isAgentsPinned,
+        isWalletsPinned,
+        isMetaMapPinned,
+        isDepartmentsPinned,
+        isBuildPinned,
+        isBreachCliPinned,
+        isLedgerPinned,
+        isModulesPinned,
+        isTerminalPinned,
+        isInboxPinned,
+        isArchivePinned
+    } = useGameState();
     const { isMuted, toggleMute } = useSound();
     const location = useLocation();
-
+    const [draggingNav, setDraggingNav] = useState<string | null>(null);
+    const navDidReorderRef = useRef(false);
+    const lastNavReorderAtRef = useRef(0);
 
     const navLinks = [
         { name: 'INBOX', path: '/inbox' },
@@ -22,6 +52,72 @@ const Layout: React.FC = () => {
         { name: 'BREACH', path: '/dungeon' },
         { name: 'TERMINAL', path: '/terminal' },
     ];
+
+    const orderedNavLinks = useMemo(() => {
+        const byName = new Map(navLinks.map(link => [link.name, link]));
+        const ordered = menuButtonOrder
+            .map(name => byName.get(name))
+            .filter((link): link is { name: string; path: string } => !!link);
+        const missing = navLinks.filter(link => !menuButtonOrder.includes(link.name));
+        return [...ordered, ...missing];
+    }, [menuButtonOrder]);
+
+    const hasVisiblePinnedSurface = useMemo(() => {
+        const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1400;
+        const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 900;
+        const pinnedWindows = [
+            { id: 'agents', enabled: isAgentsPinned },
+            { id: 'wallets', enabled: isWalletsPinned },
+            { id: 'metamap', enabled: isMetaMapPinned },
+            { id: 'departments', enabled: isDepartmentsPinned },
+            { id: 'build', enabled: isBuildPinned },
+            { id: 'breachCli', enabled: isBreachCliPinned },
+            { id: 'ledger', enabled: isLedgerPinned },
+            { id: 'modules', enabled: isModulesPinned },
+            { id: 'terminal', enabled: isTerminalPinned },
+            { id: 'inbox', enabled: isInboxPinned },
+            { id: 'archive', enabled: isArchivePinned }
+        ];
+
+        return pinnedWindows.some(windowEntry => {
+            if (!windowEntry.enabled) return false;
+            const position = pinnedPositions?.[windowEntry.id] || { x: 80, y: 80 };
+            const size = pinnedSizes?.[windowEntry.id] || { width: 320, height: 240 };
+            const right = position.x + size.width;
+            const bottom = position.y + size.height;
+            return right > 40 && bottom > 40 && position.x < viewportWidth - 40 && position.y < viewportHeight - 40;
+        });
+    }, [
+        isAgentsPinned,
+        isArchivePinned,
+        isBreachCliPinned,
+        isBuildPinned,
+        isDepartmentsPinned,
+        isInboxPinned,
+        isLedgerPinned,
+        isMainContentMinimized,
+        isMetaMapPinned,
+        isModulesPinned,
+        isTerminalPinned,
+        isWalletsPinned,
+        pinnedPositions,
+        pinnedSizes
+    ]);
+
+    const shouldShowMainContent = !isMainContentMinimized || !hasVisiblePinnedSurface;
+
+    const moveNavButton = (fromName: string, toName: string) => {
+        if (fromName === toName) return;
+
+        const nextOrder = orderedNavLinks.map(link => link.name);
+        const fromIndex = nextOrder.indexOf(fromName);
+        const toIndex = nextOrder.indexOf(toName);
+        if (fromIndex === -1 || toIndex === -1) return;
+
+        const [moved] = nextOrder.splice(fromIndex, 1);
+        nextOrder.splice(toIndex, 0, moved);
+        setMenuButtonOrder(nextOrder);
+    };
 
     return (
         <div className="container" style={{ position: 'relative' }}>
@@ -63,7 +159,14 @@ const Layout: React.FC = () => {
             <PinnedAgents />
             <PinnedWallets />
             <PinnedMetaMap />
+            <PinnedDepartments />
+            <PinnedBuild />
+            <PinnedBreachCli />
+            <PinnedLedger />
+            <PinnedModules />
             <PinnedTerminal />
+            <PinnedInbox />
+            <PinnedArchive />
 
             <div style={{ position: 'absolute', top: 10, left: 10, fontSize: '0.7rem', color: 'var(--color-primary)', zIndex: 10, display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div>ARCHIVE RESTORATION: {Math.floor(archiveRestoration)}%</div>
@@ -99,34 +202,125 @@ const Layout: React.FC = () => {
                         {isMuted ? '[ AUDIO_OFF ]' : '[ AUDIO_ON ]'}
                     </button>
 
-                    <nav className="nav-links">
-                        {navLinks.map((link) => (
-                            <Link
+                    <button
+                        onClick={toggleMainContentMinimized}
+                        style={{
+                            background: 'transparent',
+                            border: '1px solid var(--color-primary-dim)',
+                            color: isMainContentMinimized ? 'var(--color-accent)' : 'var(--color-primary-dim)',
+                            cursor: 'pointer',
+                            fontSize: '0.7rem',
+                            padding: '0.2rem 0.5rem'
+                        }}
+                    >
+                        {isMainContentMinimized ? '[ SHOW_PAGES ]' : '[ PINNED_ONLY ]'}
+                    </button>
+
+                    <nav className="nav-links" style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                        {orderedNavLinks.map((link) => (
+                            <div
                                 key={link.path}
-                                to={link.path}
-                                style={{
-                                    textDecoration: location.pathname === link.path ? 'underline' : 'none',
-                                    color: location.pathname === link.path ? 'var(--color-accent)' : 'var(--color-primary)',
-                                    fontWeight: location.pathname === link.path ? 'bold' : 'normal'
+                                draggable
+                                onDragStart={() => {
+                                    setDraggingNav(link.name);
+                                    navDidReorderRef.current = false;
                                 }}
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    if (draggingNav && draggingNav !== link.name) {
+                                        navDidReorderRef.current = true;
+                                        moveNavButton(draggingNav, link.name);
+                                    }
+                                }}
+                                onDragEnd={() => {
+                                    if (navDidReorderRef.current) {
+                                        lastNavReorderAtRef.current = Date.now();
+                                        navDidReorderRef.current = false;
+                                    }
+                                    setDraggingNav(null);
+                                }}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    setDraggingNav(null);
+                                }}
+                                style={{
+                                    cursor: 'grab',
+                                    opacity: draggingNav === link.name ? 0.45 : 1,
+                                    borderBottom: draggingNav === link.name ? '1px dashed var(--color-accent)' : '1px solid transparent',
+                                    paddingBottom: '2px'
+                                }}
+                                title="Drag to reorder"
                             >
-                                [{link.name}]
-                            </Link>
+                                <Link
+                                    to={link.path}
+                                    onClick={(e) => {
+                                        if (Date.now() - lastNavReorderAtRef.current < 250) {
+                                            e.preventDefault();
+                                            lastNavReorderAtRef.current = 0;
+                                        }
+                                    }}
+                                    draggable={false}
+                                    style={{
+                                        textDecoration: location.pathname === link.path ? 'underline' : 'none',
+                                        color: location.pathname === link.path ? 'var(--color-accent)' : 'var(--color-primary)',
+                                        fontWeight: location.pathname === link.path ? 'bold' : 'normal'
+                                    }}
+                                >
+                                    [{link.name}]
+                                </Link>
+                            </div>
                         ))}
                     </nav>
                 </div>
             </header>
 
-            <main>
-                <Outlet />
-            </main>
+            {shouldShowMainContent && (
+                <main>
+                    <Outlet />
+                </main>
+            )}
+
+            {isMainContentMinimized && !hasVisiblePinnedSurface && (
+                <main style={{ marginTop: '3rem', display: 'flex', justifyContent: 'center' }}>
+                    <div style={{
+                        border: '1px solid var(--color-primary-dim)',
+                        backgroundColor: 'rgba(0, 5, 10, 0.7)',
+                        padding: '1rem 1.2rem',
+                        maxWidth: '420px',
+                        textAlign: 'center',
+                        color: 'var(--color-primary)'
+                    }}>
+                        <div style={{ fontSize: '0.85rem', marginBottom: '0.6rem', color: 'var(--color-accent)' }}>
+                            PINNED_ONLY MODE ACTIVE
+                        </div>
+                        <div style={{ fontSize: '0.72rem', opacity: 0.85, lineHeight: 1.5, marginBottom: '0.9rem' }}>
+                            No pinned windows are visible right now, so the page content has been restored automatically.
+                        </div>
+                        <button
+                            onClick={toggleMainContentMinimized}
+                            style={{
+                                background: 'transparent',
+                                border: '1px solid var(--color-primary)',
+                                color: 'var(--color-primary)',
+                                cursor: 'pointer',
+                                fontSize: '0.72rem',
+                                padding: '0.35rem 0.7rem'
+                            }}
+                        >
+                            [ SHOW_PAGES ]
+                        </button>
+                    </div>
+                </main>
+            )}
 
             <SystemAlertModal />
 
-            <footer style={{ marginTop: '4rem', paddingTop: '1rem', borderTop: '1px dashed var(--color-primary-dim)', fontSize: '0.8rem', textAlign: 'center', opacity: 0.7 }}>
-                <p>Peregrine Archival Recovery Project &copy; 3555</p>
-                <p>WARNING: UNAUTHORIZED ACCESS ATTEMPTS ARE LOGGED</p>
-            </footer>
+            {shouldShowMainContent && (
+                <footer style={{ marginTop: '4rem', paddingTop: '1rem', borderTop: '1px dashed var(--color-primary-dim)', fontSize: '0.8rem', textAlign: 'center', opacity: 0.7 }}>
+                    <p>Peregrine Archival Recovery Project &copy; 3555</p>
+                    <p>WARNING: UNAUTHORIZED ACCESS ATTEMPTS ARE LOGGED</p>
+                </footer>
+            )}
         </div>
     );
 };

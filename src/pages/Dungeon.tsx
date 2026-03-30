@@ -1,20 +1,38 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useDungeon, type BreachInstance } from '../context/DungeonContext';
+import { useDungeon, type BreachInstance, type BreachFolder, type BreachDepartment, UNGROUPED_FOLDER_ID, UNASSIGNED_DEPARTMENT_ID } from '../context/DungeonContext';
 import { useGameState } from '../context/GameStateContext';
 import BirdMascot from '../components/BirdMascot';
+import BreachCliPanel from '../components/BreachCliPanel';
+
+const DEPARTMENT_NAME_SUGGESTIONS = [
+    'MINING OPS',
+    'SCOUT DIVISION',
+    'LOCKRUN TEAM',
+    'ASSAULT CELL',
+    'DEEP PUSH',
+    'RECOVERY UNIT',
+    'HARVEST GROUP',
+    'EXPEDITION CTRL'
+] as const;
 
 const Dungeon: React.FC = () => {
     const { crawlerStats } = useGameState();
     const { 
-        breaches, metaMap, activeBreachId, setActiveBreachId,
+        breaches, activeBreachId, setActiveBreachId,
         movePlayer, togglePause, toggleMinimize, togglePin, terminateBreach,
-        initNewBreach, restartBreach, setBreachSpec, nextFloor, locksOpened, currentFloor
+        initNewBreach, restartBreach, setBreachSpec, nextFloor, currentFloor,
+        getMetaMapForFloor, getFloorProgress, getClaimedFloor, isFloorClaimed,
+        breachDepartments, breachFolders, departmentAssignments, folderAssignments, createBreachDepartment, createBreachFolder, renameBreachDepartment, renameBreachFolder,
+        deleteBreachDepartment, deleteBreachFolder, assignFolderToDepartment, assignBreachToFolder, updateDepartmentSettings
     } = useDungeon();
 
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isMegaView, setIsMegaView] = useState(false);
+    const [departmentNameDraft, setDepartmentNameDraft] = useState('');
+    const [folderNameDraft, setFolderNameDraft] = useState('');
+    const [collapsedFolderIds, setCollapsedFolderIds] = useState<string[]>([]);
     const lastMoveRec = useRef<number>(0);
-    const MOVE_COOLDOWN = 150;
+    const moveCooldown = Math.max(75, 450 - ((crawlerStats.speedBoost || 0) * 75));
 
     // Handle Keyboard Input for Active Breach
     useEffect(() => {
@@ -24,7 +42,7 @@ const Dungeon: React.FC = () => {
             if (!b || b.isPaused || b.hp <= 0) return;
 
             const now = Date.now();
-            if (now - lastMoveRec.current < MOVE_COOLDOWN) return;
+            if (now - lastMoveRec.current < moveCooldown) return;
 
             const isMovementKey = ['ArrowUp', 'w', 'W', 'ArrowDown', 's', 'S', 'ArrowLeft', 'a', 'A', 'ArrowRight', 'd', 'D'].includes(e.key);
             if (!isMovementKey) return;
@@ -38,11 +56,12 @@ const Dungeon: React.FC = () => {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [movePlayer, activeBreachId, breaches]);
+    }, [movePlayer, activeBreachId, breaches, moveCooldown]);
 
     const renderMapAt = (rx: number, ry: number, b?: BreachInstance) => {
         if (rx < 0 || rx >= 10 || ry < 0 || ry >= 10) return ' '.repeat(144);
-        const room = metaMap[ry][rx];
+        const floorMap = getMetaMapForFloor(b?.floor ?? currentFloor);
+        const room = floorMap[ry][rx];
         const displayGrid = room.grid.map(row => [...row]);
 
         // Use the breach's live entity arrays for its current room so that
@@ -85,11 +104,81 @@ const Dungeon: React.FC = () => {
         return renderMapAt(b.roomX, b.roomY, b);
     };
 
+    const departmentOptions: BreachDepartment[] = [{ id: UNASSIGNED_DEPARTMENT_ID, name: 'UNASSIGNED', defaultSpec: 'mixed', commandScript: 'default' }, ...breachDepartments];
+    const folderOptions: BreachFolder[] = [{ id: UNGROUPED_FOLDER_ID, name: 'UNGROUPED' }, ...breachFolders];
+    const minimizedBreaches = breaches.filter(b => b.isMinimized);
+    const expandedBreaches = breaches.filter(b => !b.isMinimized);
+    const showOrganizationPanel = breachDepartments.length > 0 || breachFolders.length > 0 || minimizedBreaches.length > 0;
+
+    const createFolder = () => {
+        const normalized = folderNameDraft.trim().slice(0, 24);
+        if (!normalized) return;
+
+        createBreachFolder(normalized);
+        setFolderNameDraft('');
+    };
+
+    const createDepartment = () => {
+        const normalized = departmentNameDraft.trim().slice(0, 24);
+        if (!normalized) return;
+
+        createBreachDepartment(normalized);
+        setDepartmentNameDraft('');
+    };
+
+    const renameFolder = (folderId: string, nextName: string) => {
+        renameBreachFolder(folderId, nextName);
+    };
+
+    const renameDepartment = (departmentId: string, nextName: string) => {
+        renameBreachDepartment(departmentId, nextName);
+    };
+
+    const deleteFolder = (folderId: string) => {
+        deleteBreachFolder(folderId);
+    };
+
+    const deleteDepartment = (departmentId: string) => {
+        deleteBreachDepartment(departmentId);
+    };
+
+    const departmentNameOptions = DEPARTMENT_NAME_SUGGESTIONS.filter(name => {
+        const normalizedDraft = departmentNameDraft.trim().toLowerCase();
+        const alreadyExists = breachDepartments.some(department => department.name.toLowerCase() === name.toLowerCase());
+        if (alreadyExists) return false;
+        if (!normalizedDraft) return true;
+        return name.toLowerCase().includes(normalizedDraft);
+    });
+
+    const toggleFolderCollapse = (folderId: string) => {
+        setCollapsedFolderIds(prev => (
+            prev.includes(folderId)
+                ? prev.filter(id => id !== folderId)
+                : [...prev, folderId]
+        ));
+    };
+
+    const collapseAllFolders = () => {
+        setCollapsedFolderIds(folderOptions.map(folder => folder.id));
+    };
+
+    const expandAllFolders = () => {
+        setCollapsedFolderIds([]);
+    };
+
+    const initiateMaxBreaches = () => {
+        const missing = Math.max(0, (crawlerStats.maxBreachWindows || 1) - breaches.length);
+        for (let i = 0; i < missing; i += 1) {
+            initNewBreach();
+        }
+    };
+
     return (
         <div style={{
             padding: isFullscreen ? '2rem 4rem' : '1rem',
             fontFamily: 'var(--font-mono)',
-            height: isFullscreen ? '100vh' : 'calc(100vh - 80px)',
+            height: isFullscreen ? '100vh' : 'auto',
+            minHeight: isFullscreen ? '100vh' : 'calc(100vh - 80px)',
             width: isFullscreen ? '100vw' : 'auto',
             position: isFullscreen ? 'fixed' : 'relative',
             top: 0,
@@ -105,17 +194,25 @@ const Dungeon: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                     <h2 style={{ margin: 0 }}>PRGN_OS // MULTI-BREACH PROTOCOL</h2>
                     <div style={{ color: 'var(--color-accent)', fontSize: '0.9rem', padding: '2px 8px', border: '1px solid var(--color-accent)' }}>
-                        FLOOR: {currentFloor} | CAPACITY: {breaches.length} / {crawlerStats.maxBreachWindows}
+                        CAPACITY: {breaches.length} / {crawlerStats.maxBreachWindows}
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                     {breaches.length < crawlerStats.maxBreachWindows && (
-                        <button
-                            onClick={() => initNewBreach()}
-                            style={{ padding: '0.2rem 1rem', fontSize: '0.8rem', backgroundColor: 'var(--color-accent)', color: 'var(--color-bg)', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
-                        >
-                            [ + INITIATE NEW BREACH ]
-                        </button>
+                        <>
+                            <button
+                                onClick={() => initNewBreach()}
+                                style={{ padding: '0.2rem 1rem', fontSize: '0.8rem', backgroundColor: 'var(--color-accent)', color: 'var(--color-bg)', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+                            >
+                                [ + INITIATE NEW BREACH ]
+                            </button>
+                            <button
+                                onClick={initiateMaxBreaches}
+                                style={{ padding: '0.2rem 1rem', fontSize: '0.8rem', backgroundColor: 'transparent', color: 'var(--color-accent)', border: '1px solid var(--color-accent)', cursor: 'pointer', fontWeight: 'bold' }}
+                            >
+                                [ + INITIATE MAX BREACH ]
+                            </button>
+                        </>
                     )}
                     <button
                         onClick={() => setIsFullscreen(!isFullscreen)}
@@ -130,6 +227,21 @@ const Dungeon: React.FC = () => {
                         {isMegaView ? '[ CLOSE MEGA-BREACH ]' : '[ OPEN MEGA-BREACH ]'}
                     </button>
                 </div>
+            </div>
+
+            <div style={{
+                marginBottom: '1rem',
+                border: '1px solid rgba(56, 163, 160, 0.25)',
+                backgroundColor: 'rgba(5, 8, 10, 0.75)',
+                padding: '0.75rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.6rem'
+            }}>
+                <div style={{ color: 'var(--color-accent)', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                    BREACH COMMAND TERMINAL
+                </div>
+                <BreachCliPanel isFullscreen={isFullscreen} />
             </div>
 
             {isMegaView && activeBreachId && (() => {
@@ -199,17 +311,377 @@ const Dungeon: React.FC = () => {
                 );
             })()}
 
+            {showOrganizationPanel && (
+                <div style={{
+                    marginBottom: '1.5rem',
+                    border: '1px solid rgba(56, 163, 160, 0.2)',
+                    padding: '0.75rem',
+                    backgroundColor: 'rgba(56, 163, 160, 0.03)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.75rem'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                        <div style={{ color: 'var(--color-accent)', fontWeight: 'bold' }}>BREACH ORGANIZATION</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--color-primary-dim)' }}>
+                            DEPARTMENTS DEFINE POLICY. FOLDERS HOLD CRAWLERS.
+                        </div>
+                    </div>
+
+                    <div style={{
+                        border: '1px solid rgba(56, 163, 160, 0.18)',
+                        padding: '0.65rem',
+                        backgroundColor: 'rgba(5, 8, 10, 0.45)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.75rem'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                            <div style={{ color: 'var(--color-accent)', fontWeight: 'bold', fontSize: '0.8rem' }}>DEPARTMENTS</div>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <input
+                                    type="text"
+                                    value={departmentNameDraft}
+                                    onChange={(e) => setDepartmentNameDraft(e.target.value)}
+                                    placeholder="New department name"
+                                    list="department-name-suggestions"
+                                    maxLength={24}
+                                    style={{
+                                        padding: '0.25rem 0.4rem',
+                                        backgroundColor: '#05080a',
+                                        color: 'var(--color-primary)',
+                                        border: '1px solid var(--color-primary-dim)',
+                                        fontFamily: 'var(--font-mono)'
+                                    }}
+                                />
+                                <datalist id="department-name-suggestions">
+                                    {departmentNameOptions.map(name => (
+                                        <option key={name} value={name} />
+                                    ))}
+                                </datalist>
+                                <button
+                                    onClick={createDepartment}
+                                    style={{ padding: '0.25rem 0.6rem', backgroundColor: 'transparent', color: 'var(--color-accent)', border: '1px solid var(--color-accent)', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                    CREATE DEPARTMENT
+                                </button>
+                            </div>
+                        </div>
+
+                        {breachDepartments.length === 0 ? (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--color-primary-dim)', opacity: 0.8 }}>
+                                No departments yet. Create one to manage folders at a higher level.
+                            </div>
+                        ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.75rem' }}>
+                                {breachDepartments.map(department => {
+                                    const assignedFolderIds = breachFolders.filter(folder => departmentAssignments[folder.id] === department.id).map(folder => folder.id);
+                                    const assignedUnits = minimizedBreaches.filter(breach => assignedFolderIds.includes(folderAssignments[breach.id] || '')).length;
+
+                                    return (
+                                        <div
+                                            key={department.id}
+                                            style={{
+                                                border: '1px solid rgba(56, 163, 160, 0.18)',
+                                                padding: '0.6rem',
+                                                backgroundColor: 'rgba(56, 163, 160, 0.03)',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: '0.5rem'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <input
+                                                    type="text"
+                                                    value={department.name}
+                                                    onChange={(e) => renameDepartment(department.id, e.target.value)}
+                                                    maxLength={24}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '0.2rem 0.35rem',
+                                                        backgroundColor: '#05080a',
+                                                        color: 'var(--color-primary)',
+                                                        border: '1px solid var(--color-primary-dim)',
+                                                        fontFamily: 'var(--font-mono)',
+                                                        fontWeight: 'bold'
+                                                    }}
+                                                />
+                                                <button
+                                                    onClick={() => deleteDepartment(department.id)}
+                                                    style={{ padding: '0.15rem 0.4rem', backgroundColor: 'transparent', color: 'var(--color-alert)', border: '1px solid var(--color-alert)', cursor: 'pointer', fontSize: '0.7rem' }}
+                                                >
+                                                    DELETE
+                                                </button>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--color-primary-dim)' }}>
+                                                <span>SQUADS: {assignedFolderIds.length}</span>
+                                                <span>UNITS: {assignedUnits}</span>
+                                            </div>
+                                            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', color: 'var(--color-primary-dim)' }}>
+                                                DEFAULT SPEC
+                                                <select
+                                                    value={department.defaultSpec}
+                                                    onChange={(e) => updateDepartmentSettings(department.id, { defaultSpec: e.target.value as BreachDepartment['defaultSpec'] })}
+                                                    style={{
+                                                        padding: '0.2rem 0.3rem',
+                                                        backgroundColor: '#05080a',
+                                                        color: 'var(--color-primary)',
+                                                        border: '1px solid var(--color-primary-dim)',
+                                                        fontFamily: 'var(--font-mono)'
+                                                    }}
+                                                >
+                                                    <option value="mixed">MIXED</option>
+                                                    <option value="fighter">FIGHTER</option>
+                                                    <option value="rogue">ROGUE</option>
+                                                    <option value="miner">MINER</option>
+                                                    <option value="summoner">SUMMONER</option>
+                                                    <option value="explorer">EXPLORER</option>
+                                                </select>
+                                            </label>
+                                            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', color: 'var(--color-primary-dim)' }}>
+                                                COMMAND SCRIPT
+                                                <select
+                                                    value={department.commandScript}
+                                                    onChange={(e) => updateDepartmentSettings(department.id, { commandScript: e.target.value as BreachDepartment['commandScript'] })}
+                                                    style={{
+                                                        padding: '0.2rem 0.3rem',
+                                                        backgroundColor: '#05080a',
+                                                        color: 'var(--color-primary)',
+                                                        border: '1px solid var(--color-primary-dim)',
+                                                        fontFamily: 'var(--font-mono)'
+                                                    }}
+                                                >
+                                                    <option value="default">DEFAULT</option>
+                                                    <option value="scout">SCOUT</option>
+                                                    <option value="lockrun">LOCKRUN</option>
+                                                    <option value="harvest">HARVEST</option>
+                                                    <option value="hold">HOLD</option>
+                                                    <option value="deep-push">DEEP_PUSH</option>
+                                                </select>
+                                            </label>
+                                            <div style={{ fontSize: '0.68rem', color: 'var(--color-primary-dim)', opacity: 0.85 }}>
+                                                {department.commandScript === 'default' && 'Uses each crawler class normally.'}
+                                                {department.commandScript === 'scout' && 'Pushes toward undiscovered rooms and missing keys.'}
+                                                {department.commandScript === 'lockrun' && 'Rushes missing keys, then unopened locks.'}
+                                                {department.commandScript === 'harvest' && 'Biases toward nearby loot and room income.'}
+                                                {department.commandScript === 'hold' && 'Stays put unless something is adjacent.'}
+                                                {department.commandScript === 'deep-push' && 'Pushes toward exits and faster floor progression.'}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{
+                        border: '1px solid rgba(56, 163, 160, 0.18)',
+                        padding: '0.65rem',
+                        backgroundColor: 'rgba(5, 8, 10, 0.45)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.75rem'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                            <div style={{ color: 'var(--color-accent)', fontWeight: 'bold', fontSize: '0.8rem' }}>FOLDERS</div>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={collapseAllFolders}
+                                    style={{ padding: '0.25rem 0.6rem', backgroundColor: 'transparent', color: 'var(--color-primary)', border: '1px solid var(--color-primary-dim)', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                    COLLAPSE ALL
+                                </button>
+                                <button
+                                    onClick={expandAllFolders}
+                                    style={{ padding: '0.25rem 0.6rem', backgroundColor: 'transparent', color: 'var(--color-primary)', border: '1px solid var(--color-primary-dim)', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                    EXPAND ALL
+                                </button>
+                                <input
+                                    type="text"
+                                    value={folderNameDraft}
+                                    onChange={(e) => setFolderNameDraft(e.target.value)}
+                                    placeholder="New folder name"
+                                    maxLength={24}
+                                    style={{
+                                        padding: '0.25rem 0.4rem',
+                                        backgroundColor: '#05080a',
+                                        color: 'var(--color-primary)',
+                                        border: '1px solid var(--color-primary-dim)',
+                                        fontFamily: 'var(--font-mono)'
+                                    }}
+                                />
+                                <button
+                                    onClick={createFolder}
+                                    style={{ padding: '0.25rem 0.6rem', backgroundColor: 'transparent', color: 'var(--color-accent)', border: '1px solid var(--color-accent)', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                    CREATE FOLDER
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style={{ fontSize: '0.72rem', color: 'var(--color-primary-dim)', opacity: 0.85 }}>
+                            Assign each folder to a department, then use folders to group and move minimized crawlers.
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.75rem' }}>
+                        {folderOptions.map(folder => {
+                            const folderBreaches = minimizedBreaches.filter(breach => (folderAssignments[breach.id] || UNGROUPED_FOLDER_ID) === folder.id);
+                            const isCollapsed = collapsedFolderIds.includes(folder.id);
+
+                            return (
+                                <div
+                                    key={folder.id}
+                                    style={{
+                                        border: '1px solid rgba(56, 163, 160, 0.2)',
+                                        padding: '0.65rem',
+                                        backgroundColor: 'rgba(5, 8, 10, 0.5)',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '0.5rem'
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1 }}>
+                                            {folder.id === UNGROUPED_FOLDER_ID ? (
+                                                <span style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{folder.name}</span>
+                                            ) : (
+                                                <input
+                                                    type="text"
+                                                    value={folder.name}
+                                                    onChange={(e) => renameFolder(folder.id, e.target.value)}
+                                                    maxLength={24}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '0.2rem 0.35rem',
+                                                        backgroundColor: '#05080a',
+                                                        color: 'var(--color-primary)',
+                                                        border: '1px solid var(--color-primary-dim)',
+                                                        fontFamily: 'var(--font-mono)',
+                                                        fontWeight: 'bold'
+                                                    }}
+                                                />
+                                            )}
+                                            {folder.id !== UNGROUPED_FOLDER_ID && (
+                                                <select
+                                                    value={departmentAssignments[folder.id] || UNASSIGNED_DEPARTMENT_ID}
+                                                    onChange={(e) => assignFolderToDepartment(folder.id, e.target.value)}
+                                                    style={{
+                                                        padding: '0.15rem 0.3rem',
+                                                        fontSize: '0.72rem',
+                                                        backgroundColor: '#05080a',
+                                                        color: 'var(--color-primary)',
+                                                        border: '1px solid var(--color-primary-dim)',
+                                                        cursor: 'pointer',
+                                                        fontFamily: 'var(--font-mono)'
+                                                    }}
+                                                >
+                                                    {departmentOptions.map(option => (
+                                                        <option key={option.id} value={option.id}>{option.name}</option>
+                                                    ))}
+                                                </select>
+                                            )}
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <span style={{ fontSize: '0.7rem', color: 'var(--color-primary-dim)' }}>{folderBreaches.length} unit{folderBreaches.length === 1 ? '' : 's'}</span>
+                                            <button
+                                                onClick={() => toggleFolderCollapse(folder.id)}
+                                                style={{ padding: '0.15rem 0.4rem', backgroundColor: 'transparent', color: isCollapsed ? 'var(--color-accent)' : 'var(--color-primary)', border: '1px solid var(--color-primary-dim)', cursor: 'pointer', fontSize: '0.7rem' }}
+                                            >
+                                                {isCollapsed ? 'EXPAND' : 'MINIMIZE'}
+                                            </button>
+                                            {folder.id !== UNGROUPED_FOLDER_ID && (
+                                                <button
+                                                    onClick={() => deleteFolder(folder.id)}
+                                                    style={{ padding: '0.15rem 0.4rem', backgroundColor: 'transparent', color: 'var(--color-alert)', border: '1px solid var(--color-alert)', cursor: 'pointer', fontSize: '0.7rem' }}
+                                                >
+                                                    DELETE
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {isCollapsed ? (
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--color-primary-dim)', opacity: 0.75 }}>
+                                            Folder minimized. {folderBreaches.length} crawler{folderBreaches.length === 1 ? '' : 's'} hidden.
+                                        </div>
+                                    ) : folderBreaches.length === 0 ? (
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--color-primary-dim)', opacity: 0.75 }}>No minimized crawlers in this folder.</div>
+                                    ) : (
+                                        folderBreaches.map(breach => (
+                                            <div
+                                                key={breach.id}
+                                                style={{
+                                                    border: `1px solid ${breach.id === activeBreachId ? 'var(--color-accent)' : 'rgba(56, 163, 160, 0.2)'}`,
+                                                    backgroundColor: breach.id === activeBreachId ? 'rgba(56, 163, 160, 0.08)' : 'rgba(56, 163, 160, 0.02)',
+                                                    padding: '0.55rem',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    gap: '0.45rem'
+                                                }}
+                                            >
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                                        <span style={{ color: breach.id === activeBreachId ? 'var(--color-accent)' : 'var(--color-primary)', fontWeight: 'bold' }}>
+                                                            {breach.callsign}
+                                                        </span>
+                                                        <span style={{ fontSize: '0.7rem', padding: '1px 4px', border: '1px solid currentColor', opacity: 0.8 }}>
+                                                            {breach.spec.toUpperCase()}
+                                                        </span>
+                                                        <span style={{ fontSize: '0.75rem', opacity: 0.65 }}>F{breach.floor}</span>
+                                                    </div>
+                                                    <select
+                                                        value={folderAssignments[breach.id] || UNGROUPED_FOLDER_ID}
+                                                        onChange={(e) => assignBreachToFolder(breach.id, e.target.value)}
+                                                        style={{
+                                                            padding: '0.1rem 0.2rem',
+                                                            fontSize: '0.7rem',
+                                                            backgroundColor: '#05080a',
+                                                            color: 'var(--color-primary)',
+                                                            border: '1px solid var(--color-primary-dim)',
+                                                            cursor: 'pointer',
+                                                            height: '20px'
+                                                        }}
+                                                    >
+                                                        {folderOptions.map(option => (
+                                                            <option key={option.id} value={option.id}>{option.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--color-primary-dim)' }}>
+                                                    <span>LOC: [{breach.roomX},{breach.roomY}]</span>
+                                                    <span style={{ color: breach.hp < breach.maxHp * 0.3 ? 'var(--color-alert)' : 'var(--color-primary)' }}>
+                                                        HP: {breach.hp}/{breach.maxHp}
+                                                    </span>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                                    <button onClick={() => setActiveBreachId(breach.id)} style={{ padding: '0.1rem 0.4rem', fontSize: '0.7rem' }}>TAKE OVER</button>
+                                                    <button onClick={() => togglePause(breach.id)} style={{ padding: '0.1rem 0.4rem', fontSize: '0.7rem' }}>{breach.isPaused ? 'RESUME' : 'PAUSE'}</button>
+                                                    <button onClick={() => toggleMinimize(breach.id)} style={{ padding: '0.1rem 0.4rem', fontSize: '0.7rem' }}>EXPAND</button>
+                                                    <button onClick={() => terminateBreach(breach.id)} style={{ padding: '0.1rem 0.4rem', fontSize: '0.7rem', color: 'var(--color-alert)' }}>TERMINATE</button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            );
+                        })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Scrollable Breach List */}
             <div style={{ 
-                flex: 1, 
-                overflowY: 'auto', 
+                flex: isFullscreen ? 1 : '0 0 auto', 
+                overflowY: isFullscreen ? 'auto' : 'visible', 
                 display: 'grid', 
                 gridTemplateColumns: 'repeat(auto-fill, minmax(650px, 1fr))', 
                 gap: '1.5rem', 
                 paddingRight: '1rem',
                 alignContent: 'start'
             }}>
-                {breaches.map(b => (
+                {expandedBreaches.map(b => (
                     <div 
                         key={b.id} 
                         style={{ 
@@ -235,6 +707,8 @@ const Dungeon: React.FC = () => {
                                     {b.spec?.toUpperCase() || 'FIGHTER'}
                                 </span>
                                 <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>LOC: [{b.roomX},{b.roomY}]</span>
+                                <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>FLOOR: {b.floor}</span>
+                                {isFloorClaimed(b.floor) && <span style={{ fontSize: '0.75rem', color: 'var(--color-accent)' }}>[ CLAIMED ]</span>}
                                 <span style={{ fontSize: '0.8rem', color: b.hp < b.maxHp * 0.3 ? 'var(--color-alert)' : 'var(--color-primary)' }}>
                                     HP: {b.hp}/{b.maxHp}
                                 </span>
@@ -258,6 +732,7 @@ const Dungeon: React.FC = () => {
                                     <option value="rogue">ROGUE</option>
                                     <option value="miner">MINER</option>
                                     <option value="summoner">SUMMONER</option>
+                                    <option value="explorer">EXPLORER</option>
                                 </select>
                                 <button
                                     onClick={() => setActiveBreachId(b.id)}
@@ -312,9 +787,30 @@ const Dungeon: React.FC = () => {
                                         {b.spec === 'summoner' && b.daemons && b.daemons.length > 0 && (
                                             <div style={{ color: 'var(--color-accent)' }}>DAEMONS ACTIVE: {b.daemons.length}</div>
                                         )}
-                                        {locksOpened.length >= 3 && (
+                                        <div>KEYS: {getFloorProgress(b.floor).keysFound.length}/3 | LOCKS: {getFloorProgress(b.floor).locksOpened.length}/3</div>
+                                        {isFloorClaimed(b.floor) && (
+                                            (() => {
+                                                const claimedFloor = getClaimedFloor(b.floor);
+                                                return (
+                                                    <>
+                                                        <div style={{ color: 'var(--color-accent)' }}>
+                                                            FLOOR CLAIM ACTIVE | SLOTS {claimedFloor?.infrastructure.length || 0}/4
+                                                        </div>
+                                                        {claimedFloor && claimedFloor.infrastructure.length > 0 && (
+                                                            <div>
+                                                                INFRA: {claimedFloor.infrastructure.map(item => `${item.type.toUpperCase()}@${item.roomX},${item.roomY}`).join(', ')}
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()
+                                        )}
+                                        {!isFloorClaimed(b.floor) && getFloorProgress(b.floor).locksOpened.length >= 3 && (
+                                            <div>FLOOR CLAIM READY | USE BUILD MENU</div>
+                                        )}
+                                        {getFloorProgress(b.floor).locksOpened.length >= 3 && (
                                             <button 
-                                                onClick={() => nextFloor()}
+                                                onClick={() => nextFloor(b.id)}
                                                 style={{
                                                     padding: '4px 8px',
                                                     backgroundColor: 'var(--color-accent)',
@@ -326,7 +822,7 @@ const Dungeon: React.FC = () => {
                                                     fontSize: '0.75rem'
                                                 }}
                                             >
-                                                [ ! ] NEXT FLOOR READY
+                                                [ ! ] ADVANCE TO FLOOR {b.floor + 1}
                                             </button>
                                         )}
                                         <div>{b.isAutoPlaying ? '[ PEREGRINE_AUTO_CRAWL: ACTIVE ]' : '[ MANUAL_OVERRIDE: STANDBY ]'}</div>

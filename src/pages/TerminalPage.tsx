@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import TerminalApp from '../components/TerminalApp';
 import BirdMascot from '../components/BirdMascot';
 import { useGameState } from '../context/GameStateContext';
+import { formatComputeUnits } from '../utils/numberFormat';
 
 const TerminalPage: React.FC = () => {
     const { computeUnits, addComputeUnits } = useGameState();
@@ -24,7 +25,7 @@ const TerminalPage: React.FC = () => {
                 </div>
                 <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                     <div style={{ color: 'var(--color-accent)', fontSize: '1.2rem', fontFamily: 'var(--font-mono)' }}>
-                        {computeUnits.toFixed(2)} CU
+                        {formatComputeUnits(computeUnits)} CU
                     </div>
                     <BirdMascot message={birdSquawk ? "SQUAWK!" : null} onClick={handleBirdClick} />
                 </div>

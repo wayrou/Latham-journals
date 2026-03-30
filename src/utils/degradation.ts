@@ -26,7 +26,7 @@ export function getDegradationMultipliers(clutter: number): DegradationMultiplie
 }
 
 /**
- * Calculate the current clutter level based on session runtime.
+ * Calculate clutter growth since the last update.
  * Increases by ~0.5 per minute (0.00833 per second).
  */
 export function calculateClutterGrowth(sessionStartTime: number, now: number): number {
@@ -39,5 +39,5 @@ export function calculateClutterGrowth(sessionStartTime: number, now: number): n
  * Cost to defrag (reduce clutter) by a given amount.
  */
 export function getDefragCost(amount: number): number {
-    return Math.ceil(amount * 10); // 10 CU per 1 clutter point
+    return Math.max(0, amount * 10); // No minimum charge; cost scales linearly
 }

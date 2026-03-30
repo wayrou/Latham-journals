@@ -2,23 +2,25 @@ import React from 'react';
 import { useTerminal } from '../hooks/useTerminal';
 import { useGameState } from '../context/GameStateContext';
 import { useDraggable } from '../hooks/useDraggable';
+import { useResizable } from '../hooks/useResizable';
 import { useSound } from '../hooks/useSound';
 import { Terminal } from 'lucide-react';
 
 const PinnedTerminal: React.FC = () => {
     const { 
-        isTerminalPinned, pinnedPositions, updatePinnedPosition 
+        isTerminalPinned, pinnedPositions, pinnedSizes, updatePinnedPosition, updatePinnedSize 
     } = useGameState();
     
     const { 
-        history, inputVal, setInputVal, handleCommand, endRef,
-        hackingGame, hackingLogs, handleHacking 
+        history, inputVal, setInputVal, handleCommand, endRef
     } = useTerminal();
     
     const { playSound } = useSound();
 
     const initialPos = pinnedPositions?.terminal || { x: 100, y: 100 };
+    const initialSize = pinnedSizes?.terminal || { width: 400, height: 300 };
     const { pos, onMouseDown, isDragging } = useDraggable('terminal', initialPos, updatePinnedPosition);
+    const { size, isResizing, onResizeMouseDown } = useResizable('terminal', initialSize, updatePinnedSize, { width: 320, height: 220 });
 
     if (!isTerminalPinned) return null;
 
@@ -26,12 +28,7 @@ const PinnedTerminal: React.FC = () => {
         e.preventDefault();
         const cmd = inputVal.trim();
         if (!cmd) return;
-
-        if (hackingGame) {
-            handleHacking(cmd);
-        } else {
-            handleCommand(cmd);
-        }
+        handleCommand(cmd);
         setInputVal('');
     };
 
@@ -42,8 +39,8 @@ const PinnedTerminal: React.FC = () => {
                 position: 'fixed',
                 left: `${pos.x}px`,
                 top: `${pos.y}px`,
-                width: '400px',
-                height: '300px',
+                width: `${size.width}px`,
+                height: `${size.height}px`,
                 backgroundColor: 'rgba(0, 5, 10, 0.9)',
                 border: '1px solid var(--color-primary-dim)',
                 display: 'flex',
@@ -70,11 +67,6 @@ const PinnedTerminal: React.FC = () => {
             }}>
                 <Terminal size={14} />
                 <span style={{ flex: 1 }}>SECURE_TERMINAL_V4_REMOTE</span>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ff5f56' }} />
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ffbd2e' }} />
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#27c93f' }} />
-                </div>
             </div>
 
             {/* Content Area */}
@@ -86,7 +78,7 @@ const PinnedTerminal: React.FC = () => {
                 fontFamily: 'var(--font-mono)',
                 userSelect: 'text'
             }}>
-                {!hackingGame && history.map((entry, i) => {
+                {history.map((entry, i) => {
                     if (entry.specialType === 'help') {
                          return (
                             <div key={i} style={{ marginBottom: '0.8rem', color: 'var(--color-primary)' }}>
@@ -114,15 +106,6 @@ const PinnedTerminal: React.FC = () => {
                         </div>
                     );
                 })}
-                
-                {hackingGame && (
-                    <div style={{ color: 'var(--color-accent)' }}>
-                        <div>[HACK_MODE_ACTIVE]</div>
-                        {hackingLogs.map((log, i) => (
-                            <div key={i}>&gt; {log}</div>
-                        ))}
-                    </div>
-                )}
                 
                 <div ref={endRef} />
             </div>
@@ -157,6 +140,28 @@ const PinnedTerminal: React.FC = () => {
                     }}
                 />
             </form>
+
+            <div
+                onMouseDown={onResizeMouseDown}
+                style={{
+                    position: 'absolute',
+                    right: '4px',
+                    bottom: '4px',
+                    width: '14px',
+                    height: '14px',
+                    cursor: 'nwse-resize',
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    justifyContent: 'flex-end',
+                    color: isResizing ? 'var(--color-accent)' : 'var(--color-primary-dim)',
+                    fontSize: '10px',
+                    lineHeight: 1,
+                    userSelect: 'none'
+                }}
+                title="Resize terminal"
+            >
+                //
+            </div>
         </div>
     );
 };

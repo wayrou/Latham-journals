@@ -17,6 +17,7 @@ export interface Room {
 const MAP_SIZE = 10;
 const DUNGEON_W = 30;
 const DUNGEON_H = 20;
+export const MAX_SEED_FLOORS = 250;
 
 // Boss rooms at strategic positions around the map
 const BOSS_POSITIONS = new Set([
@@ -78,8 +79,9 @@ export const generateMetaMap = (floor: number = 1): Room[][] => {
             const rx = Math.floor(Math.random() * MAP_SIZE);
             const ry = Math.floor(Math.random() * MAP_SIZE);
             const key = `${rx},${ry}`;
-            // Avoid center spawn (4,4) and boss rooms if possible
-            if (!used.has(key) && !(rx === 4 && ry === 4) && !BOSS_POSITIONS.has(key)) {
+            const isCentralSpawn = rx >= 4 && rx <= 5 && ry >= 4 && ry <= 5;
+            // Avoid central spawn sectors and boss rooms if possible
+            if (!used.has(key) && !isCentralSpawn && !BOSS_POSITIONS.has(key)) {
                 metaMap[ry][rx].specialType = type;
                 used.add(key);
                 placed = true;

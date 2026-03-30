@@ -56,6 +56,72 @@ MANUAL COMPILATION REQUIRED.
 PLEASE ALLOCATE TECHNICIAN TO '/RECOVERY' INTERFACE IMMEDIATELY.`,
   },
   {
+    id: 'crawler-crash-course',
+    name: 'crawler-crash-course.txt',
+    type: 'public',
+    unlockedByDefault: true,
+    content: `DATE: 3555
+AUTHOR: Peregrine Operations Division
+SUBJECT: Crawler Crash Course // Employee Quick Guide
+
+All Peregrine employees assigned PRGN_OS access are expected to understand basic crawler deployment and automation. Review the following before initiating breach work.
+
+Crawlers do not "mine" compute units in a literal resource-extraction sense. In Peregrine terminology, each crawler run represents the terminal dedicating processing time to vast chained mathematical workloads. When those workloads resolve, the system records the successful output as earned compute units.
+
+When a crawler is placed on auto-crawl, the terminal is effectively brute forcing possible paths, combat outcomes, and equation branches at machine speed until it lands on a valid solution. The crawler interface is a visual abstraction for personnel; underneath, PRGN_OS is continuously testing answers until the floor yields.
+
+1. BASIC USE
+- Open CODEX in the terminal with: codex
+- Buy crawler upgrades with: codex buy [1-5]
+- Set a default crawler role with: codex spec [fighter|rogue|miner|summoner|explorer]
+- Start new crawler runs from the breach interface
+
+2. ROLE GUIDE
+- fighter: reliable combat pressure, best for clearing hostile rooms
+- rogue: fast movement and scouting, useful for covering discovered space
+- miner: passive CU generation, best grouped together
+- summoner: balanced progression with daemon support
+- explorer: quick map coverage and floor discovery
+
+3. AUTOMATION BASICS
+- Recruit an agent with: codex agent buy [strategy]
+- Review active agents with: agents
+- Change an agent behavior with: agents set [agent] [strategy]
+- Review agent wallets with: wallets
+
+4. USEFUL AGENT BEHAVIORS
+- responsible: steady upgrade purchasing
+- brave: more aggressive upgrade behavior
+- defrag: spends CU reducing clutter
+- mechanic: focuses on repair-related support
+- manager: organizes minimized crawlers into folders and advances ready crawlers to the next floor
+
+5. FOLDER MANAGEMENT
+- Minimize crawlers in the breach menu when you want them managed in groups
+- Create folders in the fullscreen breach menu to sort roles like MINING or SCOUTING
+- The manager agent works best when minimized crawlers are available to organize
+
+6. COMMON COMMANDS
+- wallets refill [agent] [amount]
+- wallets set-budget [agent] [amount]
+- wallets set-refill [agent] [amount]
+- metamap --pin
+- agents --pin
+- terminal --pin
+
+7. BREACH COMMAND TERMINAL
+Inside the fullscreen breach menu you can issue commands such as:
+- minimize all
+- expand all
+- advance all to next floor
+- add ungrouped to [folder]
+- add miners to [folder]
+
+Operational note: miners improve long-run CU flow, explorers improve archive restoration by discovering more floors, and manager agents reduce manual overhead once crawler counts grow.
+
+All personnel are expected to maintain crawler uptime, monitor budgets, and keep breach groups organized for continuous archival recovery.`,
+  },
+  {
     id: 'locked-01',
     name: 'locked-01.dat',
     type: 'locked',

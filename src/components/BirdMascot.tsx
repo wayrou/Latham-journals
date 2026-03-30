@@ -18,17 +18,17 @@ const BirdMascot: React.FC<BirdMascotProps> = ({ message, onClick, size = 'norma
         return () => clearInterval(blinkInterval);
     }, []);
 
-    const birdIdle = `  //\\  
+    const birdIdle = `  /\\  
  (o.o) 
 (  _  )
 -"-"-"-`;
 
-    const birdBlinking = `  //\\  
+    const birdBlinking = `  /\\  
  (-.-) 
 (  _  )
 -"-"-"-`;
 
-    const birdActiveBody = `  //\\  
+    const birdActiveBody = `  /\\  
  (>O<) 
 (  _  )
 -"-"-"-`;
@@ -51,7 +51,13 @@ const BirdMascot: React.FC<BirdMascotProps> = ({ message, onClick, size = 'norma
                 userSelect: 'none',
             }}
         >
-            <div style={{ whiteSpace: 'pre' }}>{currentMascotBody}</div>
+            <div style={{ 
+                whiteSpace: 'pre',
+                lineHeight: 1,
+                width: size === 'small' ? '40px' : '65px',
+                textAlign: 'center',
+                flexShrink: 0
+            }}>{currentMascotBody}</div>
             {message && (
                 <div style={{ 
                     fontStyle: 'italic', 

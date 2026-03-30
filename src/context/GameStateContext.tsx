@@ -4,7 +4,76 @@ import { jobsData } from '../data/jobs';
 import { type CipherFragment, rollCipherDrop, validateCipherPassword, CIPHER_DEFINITIONS } from '../utils/cipherSystem';
 import { getDegradationMultipliers, calculateClutterGrowth, getDefragCost, type DegradationMultipliers } from '../utils/degradation';
 
-export type CrawlerSpec = 'fighter' | 'rogue' | 'miner' | 'summoner';
+export type CrawlerSpec = 'fighter' | 'rogue' | 'miner' | 'summoner' | 'explorer';
+export type OSModuleId =
+    | 'claim-authority'
+    | 'scheduler-kernel'
+    | 'logistics-mesh'
+    | 'memory-compression'
+    | 'deep-scan-bus';
+
+export interface OSModuleDefinition {
+    id: OSModuleId;
+    name: string;
+    description: string;
+    maxLevel: number;
+    baseCost: number;
+}
+
+export const OS_MODULE_DEFINITIONS: OSModuleDefinition[] = [
+    {
+        id: 'claim-authority',
+        name: 'CLAIM AUTHORITY',
+        description: 'Raises the number of breach floors you can hold as managed territory.',
+        maxLevel: 4,
+        baseCost: 4
+    },
+    {
+        id: 'scheduler-kernel',
+        name: 'SCHEDULER KERNEL',
+        description: 'Manager agents coordinate folders and floor advances more efficiently.',
+        maxLevel: 5,
+        baseCost: 3
+    },
+    {
+        id: 'logistics-mesh',
+        name: 'LOGISTICS MESH',
+        description: 'Builders and infrastructure installs consume fewer resources.',
+        maxLevel: 5,
+        baseCost: 4
+    },
+    {
+        id: 'memory-compression',
+        name: 'MEMORY COMPRESSION',
+        description: 'Slows ongoing clutter growth across the whole operating system.',
+        maxLevel: 4,
+        baseCost: 5
+    },
+    {
+        id: 'deep-scan-bus',
+        name: 'DEEP SCAN BUS',
+        description: 'Scanner towers reveal more rooms and relay uplinks accelerate floor activity.',
+        maxLevel: 4,
+        baseCost: 4
+    }
+];
+
+const DEFAULT_OS_MODULES: Record<OSModuleId, number> = {
+    'claim-authority': 0,
+    'scheduler-kernel': 0,
+    'logistics-mesh': 0,
+    'memory-compression': 0,
+    'deep-scan-bus': 0
+};
+
+export const getOSModuleDefinition = (id: OSModuleId) =>
+    OS_MODULE_DEFINITIONS.find(module => module.id === id);
+
+export const getOSModuleCostForLevel = (id: OSModuleId, level: number) => {
+    const definition = getOSModuleDefinition(id);
+    if (!definition) return 0;
+    return definition.baseCost * (level + 1);
+};
 
 export interface LogEntry {
     type: 'input' | 'output' | 'error' | 'system';
@@ -16,6 +85,16 @@ export interface RefactorBonus {
     id: string;
     type: 'cuYield' | 'fragmentRate' | 'baseDmg' | 'maxHp' | 'speed';
     amount: number;
+}
+
+export interface OpsLedgerEntry {
+    id: string;
+    timestamp: number;
+    type: 'claim' | 'build' | 'advance' | 'crawler' | 'token' | 'income' | 'system';
+    message: string;
+    floor?: number;
+    amountCU?: number;
+    amountTokens?: number;
 }
 
 export interface BrickedNode {
@@ -43,11 +122,13 @@ interface GameState {
     completedJobs: string[];
     compiledNodes: string[];
     computeUnits: number;
+    protocolTokens: number;
     crawlerStats: { baseDmg: number; maxHpBoost: number; speedBoost: number; maxBreachWindows: number; minerYield: number };
     codexAgents: { 
         id: string; 
         name: string; 
-        strategy: 'responsible' | 'brave' | 'random' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic'; 
+        nickname?: string;
+        strategy: 'responsible' | 'brave' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic' | 'manager' | 'builder'; 
         lastAction?: string;
         budget: number;
         maxBudget: number;
@@ -56,7 +137,20 @@ interface GameState {
     isAgentsPinned: boolean;
     isWalletsPinned: boolean;
     isMetaMapPinned: boolean;
+    isDepartmentsPinned: boolean;
+    isBuildPinned: boolean;
+    isBreachCliPinned: boolean;
+    isLedgerPinned: boolean;
+    isModulesPinned: boolean;
     isTerminalPinned: boolean;
+    isInboxPinned: boolean;
+    isArchivePinned: boolean;
+    isMainContentMinimized: boolean;
+    notificationsEnabled: boolean;
+    opsLedger: OpsLedgerEntry[];
+    osModules: Record<OSModuleId, number>;
+    breachCliHistory: string[];
+    breachCliInput: string;
     terminalHistory: LogEntry[];
     terminalInput: string;
     activeAlert: { id: string; title: string; message: string; type: 'info' | 'warning' | 'critical' } | null;
@@ -75,7 +169,9 @@ interface GameState {
     repairingNodes: RepairJob[];
     // Crawler specialization default
     defaultCrawlerSpec: CrawlerSpec;
+    menuButtonOrder: string[];
     pinnedPositions: Record<string, { x: number; y: number }>;
+    pinnedSizes: Record<string, { width: number; height: number }>;
 }
 
 interface GameStateContextType extends GameState {
@@ -84,19 +180,37 @@ interface GameStateContextType extends GameState {
     resetGame: () => void;
     unlockSystem: (password: string) => boolean;
     addRestoration: (amount: number) => void;
+    setArchiveRestoration: (amount: number) => void;
     startJob: (jobId: string) => boolean;
     compileNode: (nodeId: string) => void;
     addComputeUnits: (amount: number) => void;
     spendComputeUnits: (amount: number) => boolean;
-    upgradeCrawler: (stat: 'baseDmg' | 'maxHpBoost' | 'speedBoost' | 'maxBreachWindows' | 'minerYield') => void;
-    addCodexAgent: (strategy: 'responsible' | 'brave' | 'random' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic') => void;
-    setAgentStrategy: (id: string, strategy: 'responsible' | 'brave' | 'random' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic') => void;
+    addProtocolTokens: (amount: number, reason?: string) => void;
+    spendProtocolTokens: (amount: number) => boolean;
+    upgradeCrawler: (stat: 'baseDmg' | 'maxHpBoost' | 'speedBoost' | 'maxBreachWindows' | 'minerYield') => boolean;
+    upgradeCrawlerBulk: (stat: 'baseDmg' | 'maxHpBoost' | 'speedBoost' | 'maxBreachWindows' | 'minerYield', quantity?: number | 'max') => number;
+    addCodexAgent: (strategy: 'responsible' | 'brave' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic' | 'manager' | 'builder') => boolean;
+    setAgentStrategy: (id: string, strategy: 'responsible' | 'brave' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic' | 'manager' | 'builder') => void;
+    setAgentNickname: (id: string, nickname: string) => void;
     setAgentBudget: (id: string, maxBudget: number) => void;
     setAgentRefillRate: (id: string, refillRate: number) => void;
     toggleAgentsPinned: () => void;
     toggleWalletsPinned: () => void;
     toggleMetaMapPinned: () => void;
+    toggleDepartmentsPinned: () => void;
+    toggleBuildPinned: () => void;
+    toggleBreachCliPinned: () => void;
+    toggleLedgerPinned: () => void;
+    toggleModulesPinned: () => void;
     toggleTerminalPinned: () => void;
+    toggleInboxPinned: () => void;
+    toggleArchivePinned: () => void;
+    toggleMainContentMinimized: () => void;
+    toggleNotificationsEnabled: () => void;
+    setNotificationsEnabled: (enabled: boolean) => void;
+    setBreachCliInput: (val: string) => void;
+    appendBreachCliLine: (line: string) => void;
+    clearBreachCliHistory: () => void;
     setTerminalInput: (val: string) => void;
     setTerminalHistory: (history: LogEntry[] | ((prev: LogEntry[]) => LogEntry[])) => void;
     getUpgradeCost: (stat: 'baseDmg' | 'maxHpBoost' | 'speedBoost' | 'maxBreachWindows' | 'minerYield') => number;
@@ -116,7 +230,17 @@ interface GameStateContextType extends GameState {
     setDefaultSpec: (spec: CrawlerSpec) => void;
     getCipherProgress: () => { cipherId: string; name: string; found: number; required: number }[];
     setActiveBrickedNode: (node: BrickedNode | null) => void;
+    refillAgent: (id: string, amount: number) => number;
+    spendAgentFunds: (id: string, amount: number) => boolean;
+    setMenuButtonOrder: (order: string[]) => void;
     updatePinnedPosition: (id: string, x: number, y: number) => void;
+    updatePinnedSize: (id: string, width: number, height: number) => void;
+    recordOpsLedgerEvent: (entry: Omit<OpsLedgerEntry, 'id' | 'timestamp'>) => void;
+    clearOpsLedger: () => void;
+    getOSModuleLevel: (id: OSModuleId) => number;
+    getOSModuleCost: (id: OSModuleId) => number;
+    unlockOSModule: (id: OSModuleId) => boolean;
+    getMaxClaimCount: () => number;
 }
 
 const defaultState: GameState = {
@@ -128,12 +252,26 @@ const defaultState: GameState = {
     completedJobs: [],
     compiledNodes: [],
     computeUnits: 0,
+    protocolTokens: 0,
     crawlerStats: { baseDmg: 3, maxHpBoost: 0, speedBoost: 0, maxBreachWindows: 1, minerYield: 3 },
     codexAgents: [],
     isAgentsPinned: false,
     isWalletsPinned: false,
     isMetaMapPinned: false,
+    isDepartmentsPinned: false,
+    isBuildPinned: false,
+    isBreachCliPinned: false,
+    isLedgerPinned: false,
+    isModulesPinned: false,
     isTerminalPinned: false,
+    isInboxPinned: false,
+    isArchivePinned: false,
+    isMainContentMinimized: false,
+    notificationsEnabled: true,
+    opsLedger: [],
+    osModules: { ...DEFAULT_OS_MODULES },
+    breachCliHistory: ['Type "help" for breach commands.'],
+    breachCliInput: '',
     terminalHistory: [
         { type: 'system', content: 'PRGN_OS SECURE TERMINAL v4.2.1 CONNECTED.' },
         { type: 'system', content: 'ENTER COMMAND OR "help" FOR SYSTEM ASSISTANCE.' }
@@ -150,16 +288,72 @@ const defaultState: GameState = {
     activeBrickedNode: null,
     repairingNodes: [],
     defaultCrawlerSpec: 'fighter',
+    menuButtonOrder: ['INBOX', 'ARCHIVE', 'BREACH', 'TERMINAL'],
     pinnedPositions: {
         breach: { x: (typeof window !== 'undefined' ? window.innerWidth : 1400) - 200, y: 20 },
         agents: { x: (typeof window !== 'undefined' ? window.innerWidth : 1400) - 300, y: (typeof window !== 'undefined' ? window.innerHeight : 900) - 300 },
         metamap: { x: (typeof window !== 'undefined' ? window.innerWidth : 1400) - 260, y: 100 },
+        departments: { x: (typeof window !== 'undefined' ? window.innerWidth : 1400) - 420, y: 220 },
+        build: { x: (typeof window !== 'undefined' ? window.innerWidth : 1400) - 360, y: 180 },
+        breachCli: { x: (typeof window !== 'undefined' ? window.innerWidth : 1400) - 470, y: 320 },
+        ledger: { x: (typeof window !== 'undefined' ? window.innerWidth : 1400) - 430, y: 120 },
+        modules: { x: (typeof window !== 'undefined' ? window.innerWidth : 1400) - 390, y: 150 },
         wallets: { x: (typeof window !== 'undefined' ? window.innerWidth : 1400) - 280, y: 80 },
-        terminal: { x: 100, y: 100 }
+        terminal: { x: 100, y: 100 },
+        inbox: { x: 80, y: 160 },
+        archive: { x: 460, y: 160 }
+    },
+    pinnedSizes: {
+        terminal: { width: 400, height: 300 },
+        metamap: { width: 240, height: 420 },
+        departments: { width: 400, height: 460 },
+        build: { width: 340, height: 420 },
+        breachCli: { width: 440, height: 240 },
+        ledger: { width: 410, height: 320 },
+        modules: { width: 360, height: 420 },
+        wallets: { width: 280, height: 360 },
+        archive: { width: 320, height: 320 }
     }
 };
 
 const GameStateContext = createContext<GameStateContextType | undefined>(undefined);
+
+const getCrawlerUpgradeCost = (
+    stats: GameState['crawlerStats'],
+    stat: 'baseDmg' | 'maxHpBoost' | 'speedBoost' | 'maxBreachWindows' | 'minerYield'
+) => {
+    const baseMinerYield = stats.minerYield || 3;
+    const level = stat === 'baseDmg' ? stats.baseDmg - 3 :
+                 stat === 'maxHpBoost' ? stats.maxHpBoost / 5 :
+                 stat === 'speedBoost' ? stats.speedBoost :
+                 stat === 'minerYield' ? baseMinerYield - 3 :
+                 stats.maxBreachWindows - 1;
+
+    if (stat === 'maxBreachWindows') return 250 + (level * 500);
+    if (stat === 'speedBoost') return 100 + (level * 100);
+    if (stat === 'minerYield') return 150 + (level * 50);
+    return 50 + (level * 25);
+};
+
+const createAgentName = (existingAgents: Array<{ name: string }>) => {
+    const used = new Set(
+        existingAgents
+            .map(agent => {
+                const match = /^AGENT_(\d{4})$/i.exec(agent.name);
+                return match?.[1];
+            })
+            .filter((value): value is string => !!value)
+    );
+
+    for (let attempts = 0; attempts < 1000; attempts += 1) {
+        const candidate = `${Math.floor(Math.random() * 10000)}`.padStart(4, '0');
+        if (!used.has(candidate)) {
+            return `AGENT_${candidate}`;
+        }
+    }
+
+    return `AGENT_${Date.now().toString().slice(-4).padStart(4, '0')}`;
+};
 
 export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [gameState, setGameState] = useState<GameState>(() => {
@@ -183,6 +377,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     completedJobs: Array.isArray(parsed.completedJobs) ? parsed.completedJobs : [],
                     compiledNodes: Array.isArray(parsed.compiledNodes) ? parsed.compiledNodes : [],
                     computeUnits: Number(parsed.computeUnits ?? parsed.fragments) || 0,
+                    protocolTokens: Number(parsed.protocolTokens) || 0,
                     archiveRestoration: Number(parsed.archiveRestoration) || 0,
                     crawlerStats: parsed.crawlerStats && typeof parsed.crawlerStats.baseDmg === 'number'
                         ? { 
@@ -193,6 +388,10 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                         : { ...defaultState.crawlerStats },
                     codexAgents: (Array.isArray(parsed.codexAgents) ? parsed.codexAgents : []).map((a: any) => ({
                         ...a,
+                        name: typeof a.name === 'string' && /^AGENT_\d{4}$/i.test(a.name)
+                            ? a.name.toUpperCase()
+                            : `AGENT_${String(a.id ?? '').slice(-4).padStart(4, '0')}`,
+                        nickname: typeof a.nickname === 'string' ? a.nickname : '',
                         budget: Number(a.budget) || 0,
                         maxBudget: Number(a.maxBudget) || 0,
                         refillRate: Number(a.refillRate) || 0
@@ -201,13 +400,58 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     isAgentsPinned: !!parsed.isAgentsPinned,
                     isMetaMapPinned: !!parsed.isMetaMapPinned,
                     isWalletsPinned: !!parsed.isWalletsPinned,
+                    isDepartmentsPinned: !!parsed.isDepartmentsPinned,
+                    isBuildPinned: !!parsed.isBuildPinned,
+                    isBreachCliPinned: !!parsed.isBreachCliPinned,
+                    isLedgerPinned: !!parsed.isLedgerPinned,
+                    isModulesPinned: !!parsed.isModulesPinned,
                     isTerminalPinned: !!parsed.isTerminalPinned,
+                    isInboxPinned: !!parsed.isInboxPinned,
+                    isArchivePinned: !!parsed.isArchivePinned,
+                    isMainContentMinimized: !!parsed.isMainContentMinimized,
+                    notificationsEnabled: parsed.notificationsEnabled !== false,
+                    opsLedger: Array.isArray(parsed.opsLedger)
+                        ? parsed.opsLedger
+                            .filter((entry: any) => entry && typeof entry.message === 'string')
+                            .map((entry: any) => ({
+                                id: typeof entry.id === 'string' ? entry.id : `ledger-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                                timestamp: typeof entry.timestamp === 'number' ? entry.timestamp : Date.now(),
+                                type: typeof entry.type === 'string' ? entry.type : 'system',
+                                message: entry.message,
+                                floor: typeof entry.floor === 'number' ? entry.floor : undefined,
+                                amountCU: typeof entry.amountCU === 'number' ? entry.amountCU : undefined,
+                                amountTokens: typeof entry.amountTokens === 'number' ? entry.amountTokens : undefined
+                            }))
+                            .slice(-250)
+                        : [],
+                    osModules: {
+                        ...DEFAULT_OS_MODULES,
+                        ...(parsed.osModules && typeof parsed.osModules === 'object'
+                            ? Object.fromEntries(
+                                Object.entries(parsed.osModules)
+                                    .filter(([key]) => key in DEFAULT_OS_MODULES)
+                                    .map(([key, value]) => [key, Math.max(0, Number(value) || 0)])
+                              )
+                            : {})
+                    },
+                    breachCliHistory: Array.isArray(parsed.breachCliHistory)
+                        ? parsed.breachCliHistory
+                            .filter((line: unknown): line is string => typeof line === 'string')
+                            .slice(-12)
+                        : defaultState.breachCliHistory,
+                    breachCliInput: typeof parsed.breachCliInput === 'string'
+                        ? parsed.breachCliInput
+                        : defaultState.breachCliInput,
+                    menuButtonOrder: Array.isArray(parsed.menuButtonOrder) && parsed.menuButtonOrder.length > 0
+                        ? parsed.menuButtonOrder.filter((item: unknown): item is string => typeof item === 'string')
+                        : defaultState.menuButtonOrder,
                     terminalHistory: (Array.isArray(parsed.terminalHistory) ? parsed.terminalHistory : defaultState.terminalHistory)
                         .map((h: any) => ({
                             ...h,
                             content: typeof h.content === 'string' ? h.content : '[RECOVERY ERROR: DATA CORRUPTED]'
                         })),
-                    pinnedPositions: { ...defaultState.pinnedPositions, ...(parsed.pinnedPositions || {}) }
+                    pinnedPositions: { ...defaultState.pinnedPositions, ...(parsed.pinnedPositions || {}) },
+                    pinnedSizes: { ...defaultState.pinnedSizes, ...(parsed.pinnedSizes || {}) }
                 };
             } catch (e) {
                 console.error("PRGN_OS: Failed to parse saved state, reverting to default.", e);
@@ -217,6 +461,11 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
         return defaultState;
     });
 
+    const stateRef = React.useRef(gameState);
+    React.useEffect(() => {
+        stateRef.current = gameState;
+    }, [gameState]);
+
     useEffect(() => {
         const interval = setInterval(() => {
             const now = Date.now();
@@ -224,7 +473,6 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                 let changed = false;
                 const newActiveJobs: { id: string; startTime: number }[] = [];
                 const newCompletedJobs = [...prev.completedJobs];
-                let restorationBoost = 0;
                 let newUnlockedFiles = [...prev.unlockedFiles];
                 let newAlert = prev.activeAlert;
 
@@ -236,8 +484,6 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                             // Job finishes
                             changed = true;
                             newCompletedJobs.push(jobState.id);
-                            restorationBoost += jobDef.rewardRestorationBoost;
-
                             // System Alert
                             if (!newAlert) {
                                 newAlert = { id: `alert-${Date.now()}`, title: 'BACKGROUND JOB COMPLETE', message: `Protocol ${jobDef.id} finished processing.`, type: 'info' };
@@ -253,14 +499,10 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                 });
 
                 if (changed) {
-                    let newRestoration = prev.archiveRestoration + restorationBoost;
-                    if (newRestoration > 100) newRestoration = 100;
-
                     return {
                         ...prev,
                         activeJobs: newActiveJobs,
                         completedJobs: newCompletedJobs,
-                        archiveRestoration: newRestoration,
                         unlockedFiles: newUnlockedFiles,
                         activeAlert: newAlert,
                     };
@@ -284,6 +526,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                 let nextState = { ...prev };
                 let cuRemaining = prev.computeUnits;
                 let currentClutter = prev.systemClutter;
+                let newAlert = prev.activeAlert;
 
                 const updatedAgents = prev.codexAgents.map(agent => {
                     // Step 0: Refill Budget
@@ -314,6 +557,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     
                     let targetStat: typeof statKeys[number] | null = null;
                     let lastAction = agent.lastAction || 'IDLE';
+                    const agentLabel = agent.nickname?.trim() ? `${agent.nickname} // ${agent.name}` : agent.name;
 
                     // Budget Usage Logic: Prioritize agent budget, then check main wallet if budget is 0
                     const canAfford = (cost: number) => {
@@ -328,15 +572,23 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     };
 
                     if (agent.strategy === 'defrag') {
-                        const cost = 50;
-                        const afford = canAfford(cost);
-                        if (currentClutter > 0 && afford.possible) {
-                            if (afford.useBudget) agentBudget -= cost;
-                            else cuRemaining -= cost;
-                            currentClutter = Math.max(0, currentClutter - 5);
-                            lastAction = 'DEFRAGGING (-5.0%)';
+                        const availableFunds = agentBudget > 0
+                            ? agentBudget
+                            : (maxB === 0 ? cuRemaining : 0);
+                        const spendAmount = Math.min(250, availableFunds);
+                        const cleanupAmount = Math.min(currentClutter, spendAmount * 0.75);
+
+                        if (currentClutter > 0 && spendAmount > 0 && cleanupAmount > 0) {
+                            if (agentBudget > 0) {
+                                agentBudget -= spendAmount;
+                            } else {
+                                cuRemaining -= spendAmount;
+                            }
+                            currentClutter = Math.max(0, currentClutter - cleanupAmount);
+                            lastAction = `DEFRAGGING (-${cleanupAmount.toFixed(1)}%)`;
+                            newAlert = { id: `alert-${Date.now()}`, title: 'AGENT ACTION COMPLETE', message: `${agentLabel} completed defrag cleanup: -${cleanupAmount.toFixed(1)}% clutter.`, type: 'info' };
                         } else {
-                            lastAction = currentClutter === 0 ? 'SYSTEM CLEAN' : 'WAITING FOR FUNDS';
+                            lastAction = currentClutter === 0 ? 'SYSTEM CLEAN' : 'CHARGING DEFRAG CACHE';
                         }
                     } else if (agent.strategy === 'parallel') {
                         const cost = getCost('maxBreachWindows');
@@ -349,9 +601,6 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                         if (canAfford(getCost('baseDmg')).possible) targetStat = 'baseDmg';
                         else if (canAfford(getCost('speedBoost')).possible) targetStat = 'speedBoost';
                         else if (canAfford(getCost('maxBreachWindows')).possible) targetStat = 'maxBreachWindows';
-                    } else if (agent.strategy === 'random') {
-                        const affordable = statKeys.filter(k => canAfford(getCost(k)).possible);
-                        if (affordable.length > 0) targetStat = affordable[Math.floor(Math.random() * affordable.length)];
                     } else if (agent.strategy === 'scrapper') {
                         if (nextState.activeBrickedNode) {
                             const node = nextState.activeBrickedNode;
@@ -361,6 +610,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                             cuRemaining += node.scrapValue;
                             nextState = { ...nextState, activeBrickedNode: null };
                             lastAction = `SCRAPPED NODE [${node.id.slice(-4)}]`;
+                            newAlert = { id: `alert-${Date.now()}`, title: 'AGENT ACTION COMPLETE', message: `${agentLabel} scrapped a bricked node for +${node.scrapValue} CU.`, type: 'info' };
                         } else {
                             lastAction = 'SEARCHING FOR SCRAP';
                         }
@@ -382,12 +632,17 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                                     }]
                                 };
                                 lastAction = `REPAIRING NODE [${node.id.slice(-4)}]`;
+                                newAlert = { id: `alert-${Date.now()}`, title: 'AGENT ACTION COMPLETE', message: `${agentLabel} started repairing a bricked node.`, type: 'info' };
                             } else {
                                 lastAction = `NEED ${node.repairCost} CU`;
                             }
                         } else {
                             lastAction = 'MONITORING SYSTEMS';
                         }
+                    } else if (agent.strategy === 'manager') {
+                        lastAction = 'COORDINATING BREACHES';
+                    } else if (agent.strategy === 'builder') {
+                        lastAction = 'PLANNING INFRASTRUCTURE';
                     }
 
                     if (targetStat) {
@@ -405,10 +660,11 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                             
                             nextState = { ...nextState, crawlerStats: newStats };
                             lastAction = `UPGRADING ${targetStat.toUpperCase()}`;
+                            newAlert = { id: `alert-${Date.now()}`, title: 'AGENT ACTION COMPLETE', message: `${agentLabel} purchased ${targetStat.toUpperCase()} upgrade.`, type: 'info' };
                         } else {
                             lastAction = `SAVING FOR ${targetStat.toUpperCase()}`;
                         }
-                    } else if (agent.strategy !== 'defrag' && agent.strategy !== 'scrapper' && agent.strategy !== 'mechanic') {
+                    } else if (agent.strategy !== 'defrag' && agent.strategy !== 'scrapper' && agent.strategy !== 'mechanic' && agent.strategy !== 'manager' && agent.strategy !== 'builder') {
                         lastAction = 'MONITORING';
                     }
 
@@ -419,7 +675,8 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     ...nextState, 
                     codexAgents: updatedAgents, 
                     computeUnits: cuRemaining,
-                    systemClutter: currentClutter
+                    systemClutter: currentClutter,
+                    activeAlert: newAlert
                 };
             });
         }, 5000);
@@ -462,12 +719,16 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
     }, []);
 
     const addRestoration = useCallback((amount: number) => {
-        setGameState(prev => {
-            let newRestoration = prev.archiveRestoration + amount;
-            if (newRestoration > 100) newRestoration = 100;
+        void amount;
+    }, []);
 
-            return { ...prev, archiveRestoration: newRestoration };
-        });
+    const setArchiveRestoration = useCallback((amount: number) => {
+        const normalized = Math.max(0, Math.min(100, Number.isFinite(amount) ? amount : 0));
+        setGameState(prev => (
+            prev.archiveRestoration === normalized
+                ? prev
+                : { ...prev, archiveRestoration: normalized }
+        ));
     }, []);
 
     const startJob = useCallback((jobId: string) => {
@@ -489,12 +750,8 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
         setGameState(prev => {
             if (prev.compiledNodes.includes(nodeId)) return prev;
 
-            let newRestoration = prev.archiveRestoration + 25; // Tactile matches give massive restoration
-            if (newRestoration > 100) newRestoration = 100;
-
             return {
                 ...prev,
-                archiveRestoration: newRestoration,
                 compiledNodes: [...prev.compiledNodes, nodeId]
             };
         });
@@ -502,55 +759,114 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
 
     const addComputeUnits = useCallback((amount: number) => {
         setGameState(prev => {
-            const current = isNaN(prev.computeUnits) ? 0 : prev.computeUnits;
-            const toAdd = isNaN(amount) ? 0 : amount;
+            const current = Number(prev.computeUnits) || 0;
+            const toAdd = Number(amount) || 0;
             return { ...prev, computeUnits: current + toAdd };
         });
     }, []);
 
     const spendComputeUnits = useCallback((amount: number) => {
-        let success = false;
-        setGameState(prev => {
-            if (prev.computeUnits >= amount) {
-                success = true;
-                return { ...prev, computeUnits: prev.computeUnits - amount };
-            }
-            return prev;
-        });
-        return success;
+        if (stateRef.current.computeUnits < amount) return false;
+        setGameState(prev => ({
+            ...prev,
+            computeUnits: prev.computeUnits - amount
+        }));
+        return true;
     }, []);
 
-    const getUpgradeCost = useCallback((stat: 'baseDmg' | 'maxHpBoost' | 'speedBoost' | 'maxBreachWindows' | 'minerYield') => {
-        const stats = gameState.crawlerStats;
-        const baseMinerYield = stats.minerYield || 3;
-        const level = stat === 'baseDmg' ? stats.baseDmg - 3 :
-                     stat === 'maxHpBoost' ? stats.maxHpBoost / 5 :
-                     stat === 'speedBoost' ? stats.speedBoost :
-                     stat === 'minerYield' ? baseMinerYield - 3 :
-                     stats.maxBreachWindows - 1;
+    const addProtocolTokens = useCallback((amount: number, reason?: string) => {
+        if (amount <= 0) return;
+        setGameState(prev => ({
+            ...prev,
+            protocolTokens: prev.protocolTokens + amount,
+            opsLedger: [
+                ...prev.opsLedger,
+                {
+                    id: `ledger-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    timestamp: Date.now(),
+                    type: 'token' as const,
+                    message: `+${amount} token${amount === 1 ? '' : 's'}${reason ? ` // ${reason}` : ''}`,
+                    amountTokens: amount
+                }
+            ].slice(-250),
+            activeAlert: {
+                id: `alert-${Date.now()}`,
+                title: 'ADMIN TOKENS ACQUIRED',
+                message: `+${amount} ADMIN TOKEN${amount === 1 ? '' : 'S'}${reason ? ` // ${reason}` : ''}`,
+                type: 'info'
+            }
+        }));
+    }, []);
 
-        if (stat === 'maxBreachWindows') return 250 + (level * 500);
-        if (stat === 'speedBoost') return 100 + (level * 100);
-        if (stat === 'minerYield') return 150 + (level * 50);
-        return 50 + (level * 25);
+    const spendProtocolTokens = useCallback((amount: number) => {
+        if (amount <= 0) return true;
+        if (stateRef.current.protocolTokens < amount) return false;
+        setGameState(prev => ({
+            ...prev,
+            protocolTokens: prev.protocolTokens - amount
+        }));
+        return true;
+    }, []);
+
+    const getOSModuleLevel = useCallback((id: OSModuleId) => {
+        return stateRef.current.osModules[id] ?? 0;
+    }, []);
+
+    const getOSModuleCost = useCallback((id: OSModuleId) => {
+        return getOSModuleCostForLevel(id, getOSModuleLevel(id));
+    }, [getOSModuleLevel]);
+
+    const getMaxClaimCount = useCallback(() => {
+        return 1 + (getOSModuleLevel('claim-authority') * 2);
+    }, [getOSModuleLevel]);
+
+    const unlockOSModule = useCallback((id: OSModuleId) => {
+        const definition = getOSModuleDefinition(id);
+        if (!definition) return false;
+
+        const currentLevel = getOSModuleLevel(id);
+        if (currentLevel >= definition.maxLevel) return false;
+
+        const cost = getOSModuleCostForLevel(id, currentLevel);
+        if (!spendProtocolTokens(cost)) return false;
+
+        setGameState(prev => ({
+            ...prev,
+            osModules: {
+                ...prev.osModules,
+                [id]: (prev.osModules[id] ?? 0) + 1
+            },
+            opsLedger: [
+                ...prev.opsLedger,
+                {
+                    id: `ledger-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    timestamp: Date.now(),
+                    type: 'system' as const,
+                    message: `${definition.name} upgraded to LV ${Math.min(definition.maxLevel, (prev.osModules[id] ?? 0) + 1)}.`,
+                    amountTokens: -cost
+                }
+            ].slice(-250),
+            activeAlert: {
+                id: `alert-${Date.now()}`,
+                title: 'OS MODULE INSTALLED',
+                message: `${definition.name} upgraded to LV ${(prev.osModules[id] ?? 0) + 1}.`,
+                type: 'info'
+            }
+        }));
+
+        return true;
+    }, [getOSModuleLevel, spendProtocolTokens]);
+
+    const getUpgradeCost = useCallback((stat: 'baseDmg' | 'maxHpBoost' | 'speedBoost' | 'maxBreachWindows' | 'minerYield') => {
+        return getCrawlerUpgradeCost(gameState.crawlerStats, stat);
     }, [gameState.crawlerStats]);
 
     const upgradeCrawler = useCallback((stat: 'baseDmg' | 'maxHpBoost' | 'speedBoost' | 'maxBreachWindows' | 'minerYield') => {
+        const cost = getCrawlerUpgradeCost(stateRef.current.crawlerStats, stat);
+
+        if (stateRef.current.computeUnits < cost) return false;
+
         setGameState(prev => {
-            const stats = prev.crawlerStats;
-            const baseMinerYield = stats.minerYield || 3;
-            const level = stat === 'baseDmg' ? stats.baseDmg - 3 :
-                         stat === 'maxHpBoost' ? stats.maxHpBoost / 5 :
-                         stat === 'speedBoost' ? stats.speedBoost :
-                         stat === 'minerYield' ? baseMinerYield - 3 :
-                         stats.maxBreachWindows - 1;
-
-            let cost = 0;
-            if (stat === 'maxBreachWindows') cost = 250 + (level * 500);
-            else if (stat === 'speedBoost') cost = 100 + (level * 100);
-            else if (stat === 'minerYield') cost = 150 + (level * 50);
-            else cost = 50 + (level * 25);
-
             if (prev.computeUnits < cost) return prev;
 
             const currentStats = { ...prev.crawlerStats };
@@ -566,22 +882,85 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                 crawlerStats: currentStats
             };
         });
+
+        return true;
     }, []);
 
-    const addCodexAgent = useCallback((strategy: 'responsible' | 'brave' | 'random' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic') => {
-        setGameState(prev => {
-            const agentCount = prev.codexAgents.length;
-            const cost = 500 + (agentCount * 1000);
-            if (prev.computeUnits < cost) return prev;
+    const upgradeCrawlerBulk = useCallback((stat: 'baseDmg' | 'maxHpBoost' | 'speedBoost' | 'maxBreachWindows' | 'minerYield', quantity: number | 'max' = 1) => {
+        const targetCount = quantity === 'max' ? Number.POSITIVE_INFINITY : Math.max(0, Math.floor(quantity));
+        if (!Number.isFinite(targetCount) && quantity !== 'max') return 0;
+        if (targetCount === 0) return 0;
 
-            const id = `agent-${Date.now()}`;
-            const name = `AGENT_${agentCount + 1}`;
+        const currentStats = { ...stateRef.current.crawlerStats };
+        let remainingCU = stateRef.current.computeUnits;
+        let purchased = 0;
+
+        while (purchased < targetCount) {
+            const cost = getCrawlerUpgradeCost(currentStats, stat);
+            if (remainingCU < cost) break;
+
+            remainingCU -= cost;
+            purchased += 1;
+
+            if (stat === 'baseDmg') currentStats.baseDmg += 1;
+            if (stat === 'maxHpBoost') currentStats.maxHpBoost += 5;
+            if (stat === 'speedBoost') currentStats.speedBoost += 1;
+            if (stat === 'maxBreachWindows') currentStats.maxBreachWindows += 1;
+            if (stat === 'minerYield') currentStats.minerYield += 1;
+        }
+
+        if (purchased === 0) return 0;
+
+        setGameState(prev => {
+            let liveRemainingCU = prev.computeUnits;
+            const liveStats = { ...prev.crawlerStats };
+            let livePurchased = 0;
+
+            while (livePurchased < purchased) {
+                const cost = getCrawlerUpgradeCost(liveStats, stat);
+                if (liveRemainingCU < cost) break;
+
+                liveRemainingCU -= cost;
+                livePurchased += 1;
+
+                if (stat === 'baseDmg') liveStats.baseDmg += 1;
+                if (stat === 'maxHpBoost') liveStats.maxHpBoost += 5;
+                if (stat === 'speedBoost') liveStats.speedBoost += 1;
+                if (stat === 'maxBreachWindows') liveStats.maxBreachWindows += 1;
+                if (stat === 'minerYield') liveStats.minerYield += 1;
+            }
+
+            if (livePurchased === 0) return prev;
+
             return {
                 ...prev,
-                computeUnits: prev.computeUnits - cost,
+                computeUnits: liveRemainingCU,
+                crawlerStats: liveStats
+            };
+        });
+
+        return purchased;
+    }, []);
+
+    const addCodexAgent = useCallback((strategy: 'responsible' | 'brave' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic' | 'manager' | 'builder') => {
+        const agentCount = stateRef.current.codexAgents.length;
+        const cost = 500 + (agentCount * 1000);
+        if (stateRef.current.computeUnits < cost) return false;
+
+        setGameState(prev => {
+            const liveAgentCount = prev.codexAgents.length;
+            const liveCost = 500 + (liveAgentCount * 1000);
+            if (prev.computeUnits < liveCost) return prev;
+
+            const id = `agent-${Date.now()}`;
+            const name = createAgentName(prev.codexAgents);
+            return {
+                ...prev,
+                computeUnits: prev.computeUnits - liveCost,
                 codexAgents: [...prev.codexAgents, { 
                     id, 
                     name, 
+                    nickname: '',
                     strategy, 
                     lastAction: 'INITIALIZING...', 
                     budget: 0, 
@@ -590,12 +969,22 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                 }]
             };
         });
+
+        return true;
     }, []);
 
-    const setAgentStrategy = useCallback((id: string, strategy: 'responsible' | 'brave' | 'random' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic') => {
+    const setAgentStrategy = useCallback((id: string, strategy: 'responsible' | 'brave' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic' | 'manager' | 'builder') => {
         setGameState(prev => ({
             ...prev,
             codexAgents: prev.codexAgents.map(a => a.id === id ? { ...a, strategy } : a)
+        }));
+    }, []);
+
+    const setAgentNickname = useCallback((id: string, nickname: string) => {
+        const normalizedNickname = nickname.trim().slice(0, 24);
+        setGameState(prev => ({
+            ...prev,
+            codexAgents: prev.codexAgents.map(a => a.id === id ? { ...a, nickname: normalizedNickname } : a)
         }));
     }, []);
 
@@ -611,8 +1000,75 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
         setGameState(prev => ({ ...prev, isMetaMapPinned: !prev.isMetaMapPinned }));
     }, []);
 
+    const toggleDepartmentsPinned = useCallback(() => {
+        setGameState(prev => ({ ...prev, isDepartmentsPinned: !prev.isDepartmentsPinned }));
+    }, []);
+
+    const toggleBuildPinned = useCallback(() => {
+        setGameState(prev => ({ ...prev, isBuildPinned: !prev.isBuildPinned }));
+    }, []);
+
+    const toggleBreachCliPinned = useCallback(() => {
+        setGameState(prev => ({ ...prev, isBreachCliPinned: !prev.isBreachCliPinned }));
+    }, []);
+
+    const toggleLedgerPinned = useCallback(() => {
+        setGameState(prev => ({ ...prev, isLedgerPinned: !prev.isLedgerPinned }));
+    }, []);
+
+    const toggleModulesPinned = useCallback(() => {
+        setGameState(prev => ({ ...prev, isModulesPinned: !prev.isModulesPinned }));
+    }, []);
+
     const toggleTerminalPinned = useCallback(() => {
         setGameState(prev => ({ ...prev, isTerminalPinned: !prev.isTerminalPinned }));
+    }, []);
+
+    const toggleInboxPinned = useCallback(() => {
+        setGameState(prev => ({ ...prev, isInboxPinned: !prev.isInboxPinned }));
+    }, []);
+
+    const toggleArchivePinned = useCallback(() => {
+        setGameState(prev => ({ ...prev, isArchivePinned: !prev.isArchivePinned }));
+    }, []);
+
+    const toggleMainContentMinimized = useCallback(() => {
+        setGameState(prev => ({ ...prev, isMainContentMinimized: !prev.isMainContentMinimized }));
+    }, []);
+
+    const toggleNotificationsEnabled = useCallback(() => {
+        setGameState(prev => ({
+            ...prev,
+            notificationsEnabled: !prev.notificationsEnabled,
+            activeAlert: !prev.notificationsEnabled ? prev.activeAlert : null
+        }));
+    }, []);
+
+    const setNotificationsEnabled = useCallback((enabled: boolean) => {
+        setGameState(prev => ({
+            ...prev,
+            notificationsEnabled: enabled,
+            activeAlert: enabled ? prev.activeAlert : null
+        }));
+    }, []);
+
+    const setBreachCliInput = useCallback((breachCliInput: string) => {
+        setGameState(prev => ({ ...prev, breachCliInput }));
+    }, []);
+
+    const appendBreachCliLine = useCallback((line: string) => {
+        setGameState(prev => ({
+            ...prev,
+            breachCliHistory: [...prev.breachCliHistory.slice(-11), line]
+        }));
+    }, []);
+
+    const clearBreachCliHistory = useCallback(() => {
+        setGameState(prev => ({
+            ...prev,
+            breachCliHistory: [...defaultState.breachCliHistory],
+            breachCliInput: ''
+        }));
     }, []);
 
     const setTerminalInput = useCallback((terminalInput: string) => {
@@ -626,6 +1082,13 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
         }));
     }, []);
 
+    const setMenuButtonOrder = useCallback((menuButtonOrder: string[]) => {
+        setGameState(prev => ({
+            ...prev,
+            menuButtonOrder
+        }));
+    }, []);
+
     const updatePinnedPosition = useCallback((id: string, x: number, y: number) => {
         setGameState(prev => ({
             ...prev,
@@ -634,6 +1097,34 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                 [id]: { x, y }
             }
         }));
+    }, []);
+
+    const updatePinnedSize = useCallback((id: string, width: number, height: number) => {
+        setGameState(prev => ({
+            ...prev,
+            pinnedSizes: {
+                ...prev.pinnedSizes,
+                [id]: { width, height }
+            }
+        }));
+    }, []);
+
+    const recordOpsLedgerEvent = useCallback((entry: Omit<OpsLedgerEntry, 'id' | 'timestamp'>) => {
+        setGameState(prev => ({
+            ...prev,
+            opsLedger: [
+                ...prev.opsLedger,
+                {
+                    ...entry,
+                    id: `ledger-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    timestamp: Date.now()
+                }
+            ].slice(-250)
+        }));
+    }, []);
+
+    const clearOpsLedger = useCallback(() => {
+        setGameState(prev => ({ ...prev, opsLedger: [] }));
     }, []);
 
     const setAgentBudget = useCallback((id: string, maxBudget: number) => {
@@ -648,6 +1139,74 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
             ...prev,
             codexAgents: prev.codexAgents.map(a => a.id === id ? { ...a, refillRate } : a)
         }));
+    }, []);
+
+    const refillAgent = useCallback((id: string, amount: number) => {
+        if (amount <= 0) return 0;
+        if (stateRef.current.computeUnits < amount) return 0;
+
+        const agent = stateRef.current.codexAgents.find(a => a.id === id);
+        if (!agent) return 0;
+
+        const transferableAmount = agent.maxBudget > 0
+            ? Math.min(amount, Math.max(0, agent.maxBudget - agent.budget))
+            : amount;
+
+        if (transferableAmount <= 0) return 0;
+
+        setGameState(prev => {
+            const newAgents = prev.codexAgents.map(a => {
+                if (a.id === id) {
+                    return { ...a, budget: a.budget + transferableAmount };
+                }
+                return a;
+            });
+
+            return {
+                ...prev,
+                computeUnits: prev.computeUnits - transferableAmount,
+                codexAgents: newAgents
+            };
+        });
+
+        return transferableAmount;
+    }, []);
+
+    const spendAgentFunds = useCallback((id: string, amount: number) => {
+        if (amount <= 0) return true;
+
+        const agent = stateRef.current.codexAgents.find(a => a.id === id);
+        if (!agent) return false;
+
+        const canUseBudget = agent.budget >= amount;
+        const canUseMainWallet = agent.maxBudget === 0 && stateRef.current.computeUnits >= amount;
+        if (!canUseBudget && !canUseMainWallet) return false;
+
+        let success = false;
+        setGameState(prev => {
+            const liveAgent = prev.codexAgents.find(a => a.id === id);
+            if (!liveAgent) return prev;
+
+            if (liveAgent.budget >= amount) {
+                success = true;
+                return {
+                    ...prev,
+                    codexAgents: prev.codexAgents.map(a => a.id === id ? { ...a, budget: a.budget - amount } : a)
+                };
+            }
+
+            if (liveAgent.maxBudget === 0 && prev.computeUnits >= amount) {
+                success = true;
+                return {
+                    ...prev,
+                    computeUnits: prev.computeUnits - amount
+                };
+            }
+
+            return prev;
+        });
+
+        return success;
     }, []);
 
     const triggerAlert = useCallback((title: string, message: string, type: 'info' | 'warning' | 'critical' = 'info') => {
@@ -713,17 +1272,14 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
 
     const reduceClutter = useCallback((amount: number) => {
         const cost = getDefragCost(amount);
-        let success = false;
-        setGameState(prev => {
-            if (prev.computeUnits < cost) return prev;
-            success = true;
-            return {
-                ...prev,
-                computeUnits: prev.computeUnits - cost,
-                systemClutter: Math.max(0, prev.systemClutter - amount)
-            };
-        });
-        return success;
+        if (stateRef.current.computeUnits < cost) return false;
+        
+        setGameState(prev => ({
+            ...prev,
+            computeUnits: prev.computeUnits - cost,
+            systemClutter: Math.max(0, prev.systemClutter - amount)
+        }));
+        return true;
     }, []);
 
     const initiateRefactor = useCallback((bonusType: RefactorBonus['type']) => {
@@ -816,11 +1372,13 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
     useEffect(() => {
         const interval = setInterval(() => {
             setGameState(prev => {
-                const clutterGrowth = calculateClutterGrowth(prev.sessionStartTime, Date.now());
-                const newClutter = Math.min(100, clutterGrowth);
+                const now = Date.now();
+                const memoryCompressionLevel = prev.osModules['memory-compression'] ?? 0;
+                const clutterGrowthMultiplier = Math.max(0.35, 1 - (memoryCompressionLevel * 0.15));
+                const clutterGrowth = calculateClutterGrowth(prev.sessionStartTime, now) * clutterGrowthMultiplier;
+                const newClutter = Math.min(100, prev.systemClutter + clutterGrowth);
 
                 // Check for completed repairs
-                const now = Date.now();
                 const done: RepairJob[] = [];
                 const remaining: RepairJob[] = [];
                 prev.repairingNodes.forEach(rj => {
@@ -849,6 +1407,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     return {
                         ...prev,
                         systemClutter: newClutter,
+                        sessionStartTime: now,
                         repairingNodes: remaining,
                         cipherFragments: newFragments,
                         computeUnits: prev.computeUnits + cuBonus,
@@ -865,17 +1424,18 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
         <GameStateContext.Provider value={{
             ...gameState,
             unlockFile, markFileAsRead, resetGame, unlockSystem,
-            addRestoration, startJob, compileNode,
-            addComputeUnits, spendComputeUnits, upgradeCrawler, 
-            addCodexAgent, setAgentStrategy, getUpgradeCost,
+            addRestoration, setArchiveRestoration, startJob, compileNode,
+            addComputeUnits, spendComputeUnits, addProtocolTokens, spendProtocolTokens, upgradeCrawler, upgradeCrawlerBulk,
+            addCodexAgent, setAgentStrategy, setAgentNickname, getUpgradeCost,
             triggerAlert, dismissAlert,
             getJobProgress, isJobActive, isJobCompleted,
             addCipherFragment, attemptCipherUnlock, getDegradation,
             reduceClutter, initiateRefactor, scrapBrickedNode,
             repairBrickedNode, setDefaultSpec, getCipherProgress,
-            setActiveBrickedNode, toggleAgentsPinned, toggleWalletsPinned, toggleMetaMapPinned,
-            toggleTerminalPinned, setTerminalInput, setTerminalHistory,
-            setAgentBudget, setAgentRefillRate, updatePinnedPosition
+            setActiveBrickedNode, toggleAgentsPinned, toggleWalletsPinned, toggleMetaMapPinned, toggleDepartmentsPinned, toggleBuildPinned, toggleBreachCliPinned, toggleLedgerPinned, toggleModulesPinned,
+            toggleTerminalPinned, toggleInboxPinned, toggleArchivePinned, toggleMainContentMinimized, toggleNotificationsEnabled, setNotificationsEnabled, setBreachCliInput, appendBreachCliLine, clearBreachCliHistory, setTerminalInput, setTerminalHistory,
+            setAgentBudget, setAgentRefillRate, refillAgent, spendAgentFunds, setMenuButtonOrder, updatePinnedPosition, updatePinnedSize, recordOpsLedgerEvent, clearOpsLedger,
+            getOSModuleLevel, getOSModuleCost, unlockOSModule, getMaxClaimCount
         }}>
             {children}
         </GameStateContext.Provider>

@@ -1,35 +1,51 @@
-import { useRef, useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export type SoundType = 'click' | 'alert' | 'hum' | 'boot' | 'error' | 'success';
 
+let sharedAudioCtx: AudioContext | null = null;
+let sharedMuted = (() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('prgn_os_muted') === 'true';
+})();
+const muteListeners = new Set<(value: boolean) => void>();
+
 export const useSound = () => {
-    const audioCtx = useRef<AudioContext | null>(null);
-    const [isMuted, setIsMuted] = useState(() => {
-        const saved = localStorage.getItem('prgn_os_muted');
-        return saved === 'true';
-    });
+    const [isMuted, setIsMuted] = useState(sharedMuted);
+
+    useEffect(() => {
+        muteListeners.add(setIsMuted);
+        return () => {
+            muteListeners.delete(setIsMuted);
+        };
+    }, []);
 
     const initCtx = () => {
-        if (!audioCtx.current) {
-            audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        if (!sharedAudioCtx) {
+            sharedAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
         }
-        if (audioCtx.current.state === 'suspended') {
-            audioCtx.current.resume();
+        if (sharedAudioCtx.state === 'suspended') {
+            sharedAudioCtx.resume();
         }
     };
 
     const toggleMute = () => {
-        setIsMuted(prev => {
-            const newVal = !prev;
-            localStorage.setItem('prgn_os_muted', String(newVal));
-            return newVal;
-        });
+        sharedMuted = !sharedMuted;
+        localStorage.setItem('prgn_os_muted', String(sharedMuted));
+        muteListeners.forEach(listener => listener(sharedMuted));
+
+        if (sharedAudioCtx) {
+            if (sharedMuted) {
+                sharedAudioCtx.suspend();
+            } else if (sharedAudioCtx.state === 'suspended') {
+                sharedAudioCtx.resume();
+            }
+        }
     };
 
     const playSound = useCallback((type: SoundType) => {
-        if (isMuted) return;
+        if (sharedMuted) return;
         initCtx();
-        const ctx = audioCtx.current!;
+        const ctx = sharedAudioCtx!;
 
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -87,7 +103,7 @@ export const useSound = () => {
                 osc.stop(now + 2);
                 break;
         }
-    }, [isMuted]);
+    }, []);
 
     return { playSound, isMuted, toggleMute };
 };

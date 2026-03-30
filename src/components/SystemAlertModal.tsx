@@ -5,12 +5,12 @@ import { useEffect, useState } from 'react';
 const AUTO_DISMISS_MS = 5000;
 
 const SystemAlertModal: React.FC = () => {
-    const { activeAlert, dismissAlert } = useGameState();
+    const { activeAlert, dismissAlert, notificationsEnabled } = useGameState();
     const { playSound } = useSound();
     const [progress, setProgress] = useState(100);
 
     useEffect(() => {
-        if (activeAlert) {
+        if (activeAlert && notificationsEnabled) {
             playSound('alert');
             setProgress(100);
 
@@ -28,9 +28,9 @@ const SystemAlertModal: React.FC = () => {
 
             return () => clearInterval(interval);
         }
-    }, [activeAlert, playSound, dismissAlert]);
+    }, [activeAlert, notificationsEnabled, playSound, dismissAlert]);
 
-    if (!activeAlert) return null;
+    if (!activeAlert || !notificationsEnabled) return null;
 
     const getColor = (type: string) => {
         switch (type) {
