@@ -8,7 +8,7 @@ import { formatComputeUnits } from '../utils/numberFormat';
 
 const PinnedWallets: React.FC = () => {
     const { computeUnits, protocolTokens, crawlerStats, codexAgents, isWalletsPinned, pinnedPositions, pinnedSizes, updatePinnedPosition, updatePinnedSize } = useGameState();
-    const { breaches } = useDungeon();
+    const { breaches, claimedFloors } = useDungeon();
 
     const initialPos = pinnedPositions?.wallets || { x: window.innerWidth - 280, y: 80 };
     const initialSize = pinnedSizes?.wallets || { width: 280, height: 360 };
@@ -23,6 +23,14 @@ const PinnedWallets: React.FC = () => {
     const minerTicksRequired = Math.max(1, 3 - (crawlerStats.speedBoost || 0));
     const ticksPerSec = 1000 / tickDuration;
     const cuPerSec = activeMiners * (crawlerStats.minerYield || 3) * (ticksPerSec / minerTicksRequired);
+    const activeTokenMints = claimedFloors.reduce((total, floor) => {
+        const mintCount = floor.infrastructure.filter(item => item.type === 'token-mint').length;
+        const quarantineCount = floor.infrastructure.filter(item => item.type === 'quarantine-node').length;
+        if (mintCount <= 0 || quarantineCount <= 0) return total;
+        return total + mintCount;
+    }, 0);
+    const affordableMints = Math.min(activeTokenMints, Math.floor(computeUnits / 10_000_000));
+    const tokensPerSec = affordableMints / 15;
     const isCompact = size.width <= 220 || size.height <= 165;
 
     return (
@@ -92,6 +100,11 @@ const PinnedWallets: React.FC = () => {
                         {protocolTokens}
                     </span>
                     <span style={{ fontSize: '0.75rem', color: 'var(--color-accent)' }}>TOK</span>
+                    {tokensPerSec > 0 && (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--color-accent)', marginLeft: 'auto' }}>
+                            (+{tokensPerSec.toFixed(3)}/s)
+                        </span>
+                    )}
                 </div>
             </div>
 

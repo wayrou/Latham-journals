@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useDungeon, type BreachInstance, type BreachFolder, type BreachDepartment, UNGROUPED_FOLDER_ID, UNASSIGNED_DEPARTMENT_ID } from '../context/DungeonContext';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useDungeon, type BreachInstance, type BreachFolder, type BreachDepartment, DEPARTMENT_THEME_OPTIONS, getDepartmentTheme, UNGROUPED_FOLDER_ID, UNASSIGNED_DEPARTMENT_ID } from '../context/DungeonContext';
 import { useGameState } from '../context/GameStateContext';
 import BirdMascot from '../components/BirdMascot';
 import BreachCliPanel from '../components/BreachCliPanel';
@@ -15,12 +15,27 @@ const DEPARTMENT_NAME_SUGGESTIONS = [
     'EXPEDITION CTRL'
 ] as const;
 
+const getCommandScriptDescription = (script: BreachDepartment['commandScript']) => {
+    if (script === 'scout') return 'Pushes toward undiscovered rooms and missing keys.';
+    if (script === 'lockrun') return 'Rushes missing keys, then unopened locks.';
+    if (script === 'harvest') return 'Biases toward nearby loot and room income.';
+    if (script === 'hold') return 'Stays put unless something is adjacent.';
+    if (script === 'deep-push') return 'Pushes toward exits and faster floor progression.';
+    return 'Uses each crawler class normally.';
+};
+
+const getAllocationDescription = (allocationMode: BreachDepartment['allocationMode']) => {
+    if (allocationMode === 'expansion') return 'Builders prioritize claims and managers keep squads pressing deeper within range.';
+    if (allocationMode === 'infrastructure') return 'Builders prioritize floor installs and stabilization within the assigned range.';
+    return 'Balances claiming and building work across the department range.';
+};
+
 const Dungeon: React.FC = () => {
     const { crawlerStats } = useGameState();
     const { 
         breaches, activeBreachId, setActiveBreachId,
         movePlayer, togglePause, toggleMinimize, togglePin, terminateBreach,
-        initNewBreach, restartBreach, setBreachSpec, nextFloor, currentFloor,
+        initNewBreach, initBreachesBulk, restartBreach, setBreachSpec, nextFloor, moveBreachToFloor, currentFloor, availableFloors,
         getMetaMapForFloor, getFloorProgress, getClaimedFloor, isFloorClaimed,
         breachDepartments, breachFolders, departmentAssignments, folderAssignments, createBreachDepartment, createBreachFolder, renameBreachDepartment, renameBreachFolder,
         deleteBreachDepartment, deleteBreachFolder, assignFolderToDepartment, assignBreachToFolder, updateDepartmentSettings
@@ -104,10 +119,35 @@ const Dungeon: React.FC = () => {
         return renderMapAt(b.roomX, b.roomY, b);
     };
 
-    const departmentOptions: BreachDepartment[] = [{ id: UNASSIGNED_DEPARTMENT_ID, name: 'UNASSIGNED', defaultSpec: 'mixed', commandScript: 'default' }, ...breachDepartments];
+    const departmentOptions: BreachDepartment[] = [{
+        id: UNASSIGNED_DEPARTMENT_ID,
+        name: 'UNASSIGNED',
+        themeColor: 'cyan',
+        defaultSpec: 'mixed',
+        commandScript: 'default',
+        allocationMode: 'balanced',
+        targetFloorMin: 1,
+        targetFloorMax: 250
+    }, ...breachDepartments];
     const folderOptions: BreachFolder[] = [{ id: UNGROUPED_FOLDER_ID, name: 'UNGROUPED' }, ...breachFolders];
     const minimizedBreaches = breaches.filter(b => b.isMinimized);
     const expandedBreaches = breaches.filter(b => !b.isMinimized);
+    const departmentById = useMemo(
+        () => new Map(breachDepartments.map(department => [department.id, department])),
+        [breachDepartments]
+    );
+    const MAX_RENDERED_EXPANDED_BREACHES = 24;
+    const renderedExpandedBreaches = useMemo(() => {
+        if (expandedBreaches.length <= MAX_RENDERED_EXPANDED_BREACHES) return expandedBreaches;
+        const activeExpanded = activeBreachId
+            ? expandedBreaches.find(breach => breach.id === activeBreachId)
+            : undefined;
+        const visible = expandedBreaches
+            .filter(breach => breach.id !== activeExpanded?.id)
+            .slice(0, MAX_RENDERED_EXPANDED_BREACHES - (activeExpanded ? 1 : 0));
+        return activeExpanded ? [activeExpanded, ...visible] : visible;
+    }, [activeBreachId, expandedBreaches]);
+    const hiddenExpandedCount = Math.max(0, expandedBreaches.length - renderedExpandedBreaches.length);
     const showOrganizationPanel = breachDepartments.length > 0 || breachFolders.length > 0 || minimizedBreaches.length > 0;
 
     const createFolder = () => {
@@ -168,8 +208,8 @@ const Dungeon: React.FC = () => {
 
     const initiateMaxBreaches = () => {
         const missing = Math.max(0, (crawlerStats.maxBreachWindows || 1) - breaches.length);
-        for (let i = 0; i < missing; i += 1) {
-            initNewBreach();
+        if (missing > 0) {
+            initBreachesBulk(missing, undefined, { isMinimized: true });
         }
     };
 
@@ -243,6 +283,19 @@ const Dungeon: React.FC = () => {
                 </div>
                 <BreachCliPanel isFullscreen={isFullscreen} />
             </div>
+
+            {hiddenExpandedCount > 0 && (
+                <div style={{
+                    marginBottom: '1rem',
+                    border: '1px solid rgba(56, 163, 160, 0.18)',
+                    backgroundColor: 'rgba(5, 8, 10, 0.65)',
+                    padding: '0.65rem 0.8rem',
+                    color: 'var(--color-primary-dim)',
+                    fontSize: '0.78rem'
+                }}>
+                    LARGE FLEET MODE: showing {renderedExpandedBreaches.length} expanded crawler windows and keeping {hiddenExpandedCount} off the page for stability. Use folders, departments, pins, or the breach CLI to manage the rest.
+                </div>
+            )}
 
             {isMegaView && activeBreachId && (() => {
                 const activeBreach = breaches.find(b => b.id === activeBreachId);
@@ -377,14 +430,15 @@ const Dungeon: React.FC = () => {
                                 {breachDepartments.map(department => {
                                     const assignedFolderIds = breachFolders.filter(folder => departmentAssignments[folder.id] === department.id).map(folder => folder.id);
                                     const assignedUnits = minimizedBreaches.filter(breach => assignedFolderIds.includes(folderAssignments[breach.id] || '')).length;
+                                    const theme = getDepartmentTheme(department.themeColor);
 
                                     return (
                                         <div
                                             key={department.id}
                                             style={{
-                                                border: '1px solid rgba(56, 163, 160, 0.18)',
+                                                border: `1px solid ${theme.border}`,
                                                 padding: '0.6rem',
-                                                backgroundColor: 'rgba(56, 163, 160, 0.03)',
+                                                backgroundColor: theme.surface,
                                                 display: 'flex',
                                                 flexDirection: 'column',
                                                 gap: '0.5rem'
@@ -414,9 +468,27 @@ const Dungeon: React.FC = () => {
                                                 </button>
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--color-primary-dim)' }}>
-                                                <span>SQUADS: {assignedFolderIds.length}</span>
+                                                <span style={{ color: theme.accent }}>SQUADS: {assignedFolderIds.length}</span>
                                                 <span>UNITS: {assignedUnits}</span>
                                             </div>
+                                            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', color: 'var(--color-primary-dim)' }}>
+                                                UI COLOR
+                                                <select
+                                                    value={department.themeColor}
+                                                    onChange={(e) => updateDepartmentSettings(department.id, { themeColor: e.target.value as BreachDepartment['themeColor'] })}
+                                                    style={{
+                                                        padding: '0.2rem 0.3rem',
+                                                        backgroundColor: '#05080a',
+                                                        color: theme.accent,
+                                                        border: `1px solid ${theme.border}`,
+                                                        fontFamily: 'var(--font-mono)'
+                                                    }}
+                                                >
+                                                    {DEPARTMENT_THEME_OPTIONS.map(option => (
+                                                        <option key={option.id} value={option.id}>{option.label}</option>
+                                                    ))}
+                                                </select>
+                                            </label>
                                             <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', color: 'var(--color-primary-dim)' }}>
                                                 DEFAULT SPEC
                                                 <select
@@ -459,13 +531,65 @@ const Dungeon: React.FC = () => {
                                                     <option value="deep-push">DEEP_PUSH</option>
                                                 </select>
                                             </label>
+                                            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', color: 'var(--color-primary-dim)' }}>
+                                                ALLOCATION MODE
+                                                <select
+                                                    value={department.allocationMode}
+                                                    onChange={(e) => updateDepartmentSettings(department.id, { allocationMode: e.target.value as BreachDepartment['allocationMode'] })}
+                                                    style={{
+                                                        padding: '0.2rem 0.3rem',
+                                                        backgroundColor: '#05080a',
+                                                        color: 'var(--color-primary)',
+                                                        border: '1px solid var(--color-primary-dim)',
+                                                        fontFamily: 'var(--font-mono)'
+                                                    }}
+                                                >
+                                                    <option value="balanced">BALANCED</option>
+                                                    <option value="expansion">EXPANSION</option>
+                                                    <option value="infrastructure">INFRASTRUCTURE</option>
+                                                </select>
+                                            </label>
+                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: 1, fontSize: '0.72rem', color: 'var(--color-primary-dim)' }}>
+                                                    FLOOR MIN
+                                                    <input
+                                                        type="number"
+                                                        min={1}
+                                                        max={250}
+                                                        value={department.targetFloorMin}
+                                                        onChange={(e) => updateDepartmentSettings(department.id, { targetFloorMin: Math.max(1, Number(e.target.value) || 1) })}
+                                                        style={{
+                                                            padding: '0.2rem 0.3rem',
+                                                            backgroundColor: '#05080a',
+                                                            color: 'var(--color-primary)',
+                                                            border: '1px solid var(--color-primary-dim)',
+                                                            fontFamily: 'var(--font-mono)'
+                                                        }}
+                                                    />
+                                                </label>
+                                                <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: 1, fontSize: '0.72rem', color: 'var(--color-primary-dim)' }}>
+                                                    FLOOR MAX
+                                                    <input
+                                                        type="number"
+                                                        min={1}
+                                                        max={250}
+                                                        value={department.targetFloorMax}
+                                                        onChange={(e) => updateDepartmentSettings(department.id, { targetFloorMax: Math.max(1, Number(e.target.value) || department.targetFloorMax) })}
+                                                        style={{
+                                                            padding: '0.2rem 0.3rem',
+                                                            backgroundColor: '#05080a',
+                                                            color: 'var(--color-primary)',
+                                                            border: '1px solid var(--color-primary-dim)',
+                                                            fontFamily: 'var(--font-mono)'
+                                                        }}
+                                                    />
+                                                </label>
+                                            </div>
                                             <div style={{ fontSize: '0.68rem', color: 'var(--color-primary-dim)', opacity: 0.85 }}>
-                                                {department.commandScript === 'default' && 'Uses each crawler class normally.'}
-                                                {department.commandScript === 'scout' && 'Pushes toward undiscovered rooms and missing keys.'}
-                                                {department.commandScript === 'lockrun' && 'Rushes missing keys, then unopened locks.'}
-                                                {department.commandScript === 'harvest' && 'Biases toward nearby loot and room income.'}
-                                                {department.commandScript === 'hold' && 'Stays put unless something is adjacent.'}
-                                                {department.commandScript === 'deep-push' && 'Pushes toward exits and faster floor progression.'}
+                                                {getCommandScriptDescription(department.commandScript)}
+                                            </div>
+                                            <div style={{ fontSize: '0.68rem', color: 'var(--color-primary-dim)', opacity: 0.85 }}>
+                                                {getAllocationDescription(department.allocationMode)}
                                             </div>
                                         </div>
                                     );
@@ -528,14 +652,16 @@ const Dungeon: React.FC = () => {
                         {folderOptions.map(folder => {
                             const folderBreaches = minimizedBreaches.filter(breach => (folderAssignments[breach.id] || UNGROUPED_FOLDER_ID) === folder.id);
                             const isCollapsed = collapsedFolderIds.includes(folder.id);
+                            const assignedDepartment = departmentById.get(departmentAssignments[folder.id] || UNASSIGNED_DEPARTMENT_ID);
+                            const theme = getDepartmentTheme(assignedDepartment?.themeColor);
 
                             return (
                                 <div
                                     key={folder.id}
                                     style={{
-                                        border: '1px solid rgba(56, 163, 160, 0.2)',
+                                        border: assignedDepartment ? `1px solid ${theme.border}` : '1px solid rgba(56, 163, 160, 0.2)',
                                         padding: '0.65rem',
-                                        backgroundColor: 'rgba(5, 8, 10, 0.5)',
+                                        backgroundColor: assignedDepartment ? theme.surface : 'rgba(5, 8, 10, 0.5)',
                                         display: 'flex',
                                         flexDirection: 'column',
                                         gap: '0.5rem'
@@ -681,7 +807,7 @@ const Dungeon: React.FC = () => {
                 paddingRight: '1rem',
                 alignContent: 'start'
             }}>
-                {expandedBreaches.map(b => (
+                {renderedExpandedBreaches.map(b => (
                     <div 
                         key={b.id} 
                         style={{ 
@@ -807,6 +933,22 @@ const Dungeon: React.FC = () => {
                                         )}
                                         {!isFloorClaimed(b.floor) && getFloorProgress(b.floor).locksOpened.length >= 3 && (
                                             <div>FLOOR CLAIM READY | USE BUILD MENU</div>
+                                        )}
+                                        {b.floor > 1 && availableFloors.includes(b.floor - 1) && (
+                                            <button
+                                                onClick={() => moveBreachToFloor(b.id, b.floor - 1)}
+                                                style={{
+                                                    padding: '4px 8px',
+                                                    backgroundColor: 'transparent',
+                                                    color: 'var(--color-primary)',
+                                                    border: '1px solid var(--color-primary)',
+                                                    cursor: 'pointer',
+                                                    fontWeight: 'bold',
+                                                    fontSize: '0.75rem'
+                                                }}
+                                            >
+                                                [ &lt; ] RETURN TO FLOOR {b.floor - 1}
+                                            </button>
                                         )}
                                         {getFloorProgress(b.floor).locksOpened.length >= 3 && (
                                             <button 

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Network } from 'lucide-react';
 import { useGameState } from '../context/GameStateContext';
-import { useDungeon, type BreachDepartment, UNASSIGNED_DEPARTMENT_ID, UNGROUPED_FOLDER_ID } from '../context/DungeonContext';
+import { useDungeon, type BreachDepartment, DEPARTMENT_THEME_OPTIONS, getDepartmentTheme, UNASSIGNED_DEPARTMENT_ID, UNGROUPED_FOLDER_ID } from '../context/DungeonContext';
 import { useDraggable } from '../hooks/useDraggable';
 import { useResizable } from '../hooks/useResizable';
 
@@ -12,6 +12,12 @@ const getCommandScriptDescription = (script: BreachDepartment['commandScript']) 
     if (script === 'hold') return 'Keeps squads settled unless something is adjacent.';
     if (script === 'deep-push') return 'Prioritizes exits and faster floor progression.';
     return 'Uses each crawler class normally.';
+};
+
+const getAllocationDescription = (allocationMode: BreachDepartment['allocationMode']) => {
+    if (allocationMode === 'expansion') return 'Builders prioritize claims and managers keep squads pressing deeper within range.';
+    if (allocationMode === 'infrastructure') return 'Builders prioritize floor installs and stabilization within the assigned range.';
+    return 'Balances claiming and building work across the department range.';
 };
 
 const PinnedDepartments: React.FC = () => {
@@ -40,13 +46,26 @@ const PinnedDepartments: React.FC = () => {
     const [folderNameDraft, setFolderNameDraft] = useState('');
 
     const departmentOptions: BreachDepartment[] = useMemo(() => (
-        [{ id: UNASSIGNED_DEPARTMENT_ID, name: 'UNASSIGNED', defaultSpec: 'mixed', commandScript: 'default' }, ...breachDepartments]
+        [{
+            id: UNASSIGNED_DEPARTMENT_ID,
+            name: 'UNASSIGNED',
+            themeColor: 'cyan',
+            defaultSpec: 'mixed',
+            commandScript: 'default',
+            allocationMode: 'balanced',
+            targetFloorMin: 1,
+            targetFloorMax: 250
+        }, ...breachDepartments]
     ), [breachDepartments]);
 
     if (!isDepartmentsPinned) return null;
 
     const minimizedBreaches = breaches.filter(breach => breach.isMinimized);
     const assignableFolders = breachFolders.filter(folder => folder.id !== UNGROUPED_FOLDER_ID);
+    const departmentById = useMemo(
+        () => new Map(breachDepartments.map(department => [department.id, department])),
+        [breachDepartments]
+    );
     const unassignedFolderCount = assignableFolders.filter(folder => !departmentAssignments[folder.id]).length;
     const ungroupedUnitCount = minimizedBreaches.filter(
         breach => (folderAssignments[breach.id] || UNGROUPED_FOLDER_ID) === UNGROUPED_FOLDER_ID
@@ -187,14 +206,15 @@ const PinnedDepartments: React.FC = () => {
                 ) : breachDepartments.map(department => {
                     const assignedFolderIds = assignableFolders.filter(folder => departmentAssignments[folder.id] === department.id).map(folder => folder.id);
                     const assignedUnits = minimizedBreaches.filter(breach => assignedFolderIds.includes(folderAssignments[breach.id] || '')).length;
+                    const theme = getDepartmentTheme(department.themeColor);
 
                     return (
                         <div
                             key={department.id}
                             style={{
-                                border: '1px solid rgba(56, 163, 160, 0.18)',
+                                border: `1px solid ${theme.border}`,
                                 padding: '8px',
-                                backgroundColor: 'rgba(56, 163, 160, 0.03)',
+                                backgroundColor: theme.surface,
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: '6px'
@@ -234,9 +254,28 @@ const PinnedDepartments: React.FC = () => {
                             </div>
 
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--color-primary-dim)' }}>
-                                <span>SQUADS: {assignedFolderIds.length}</span>
+                                <span style={{ color: theme.accent }}>SQUADS: {assignedFolderIds.length}</span>
                                 <span>UNITS: {assignedUnits}</span>
                             </div>
+
+                            <label style={{ display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '0.68rem', color: 'var(--color-primary-dim)' }}>
+                                UI COLOR
+                                <select
+                                    value={department.themeColor}
+                                    onChange={(e) => updateDepartmentSettings(department.id, { themeColor: e.target.value as BreachDepartment['themeColor'] })}
+                                    style={{
+                                        padding: '0.2rem 0.3rem',
+                                        backgroundColor: '#05080a',
+                                        color: theme.accent,
+                                        border: `1px solid ${theme.border}`,
+                                        fontFamily: 'inherit'
+                                    }}
+                                >
+                                    {DEPARTMENT_THEME_OPTIONS.map(option => (
+                                        <option key={option.id} value={option.id}>{option.label}</option>
+                                    ))}
+                                </select>
+                            </label>
 
                             <label style={{ display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '0.68rem', color: 'var(--color-primary-dim)' }}>
                                 DEFAULT SPEC
@@ -282,8 +321,67 @@ const PinnedDepartments: React.FC = () => {
                                 </select>
                             </label>
 
+                            <label style={{ display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '0.68rem', color: 'var(--color-primary-dim)' }}>
+                                ALLOCATION MODE
+                                <select
+                                    value={department.allocationMode}
+                                    onChange={(e) => updateDepartmentSettings(department.id, { allocationMode: e.target.value as BreachDepartment['allocationMode'] })}
+                                    style={{
+                                        padding: '0.2rem 0.3rem',
+                                        backgroundColor: '#05080a',
+                                        color: 'var(--color-primary)',
+                                        border: '1px solid var(--color-primary-dim)',
+                                        fontFamily: 'inherit'
+                                    }}
+                                >
+                                    <option value="balanced">BALANCED</option>
+                                    <option value="expansion">EXPANSION</option>
+                                    <option value="infrastructure">INFRASTRUCTURE</option>
+                                </select>
+                            </label>
+
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, fontSize: '0.68rem', color: 'var(--color-primary-dim)' }}>
+                                    FLOOR MIN
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={250}
+                                        value={department.targetFloorMin}
+                                        onChange={(e) => updateDepartmentSettings(department.id, { targetFloorMin: Math.max(1, Number(e.target.value) || 1) })}
+                                        style={{
+                                            padding: '0.2rem 0.3rem',
+                                            backgroundColor: '#05080a',
+                                            color: 'var(--color-primary)',
+                                            border: '1px solid var(--color-primary-dim)',
+                                            fontFamily: 'inherit'
+                                        }}
+                                    />
+                                </label>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, fontSize: '0.68rem', color: 'var(--color-primary-dim)' }}>
+                                    FLOOR MAX
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={250}
+                                        value={department.targetFloorMax}
+                                        onChange={(e) => updateDepartmentSettings(department.id, { targetFloorMax: Math.max(1, Number(e.target.value) || department.targetFloorMax) })}
+                                        style={{
+                                            padding: '0.2rem 0.3rem',
+                                            backgroundColor: '#05080a',
+                                            color: 'var(--color-primary)',
+                                            border: '1px solid var(--color-primary-dim)',
+                                            fontFamily: 'inherit'
+                                        }}
+                                    />
+                                </label>
+                            </div>
+
                             <div style={{ fontSize: '0.64rem', color: 'var(--color-primary-dim)', opacity: 0.85 }}>
                                 {getCommandScriptDescription(department.commandScript)}
+                            </div>
+                            <div style={{ fontSize: '0.64rem', color: 'var(--color-primary-dim)', opacity: 0.85 }}>
+                                {getAllocationDescription(department.allocationMode)}
                             </div>
                         </div>
                     );
@@ -308,6 +406,8 @@ const PinnedDepartments: React.FC = () => {
                         </div>
                     ) : assignableFolders.map(folder => {
                         const departmentId = departmentAssignments[folder.id] || UNASSIGNED_DEPARTMENT_ID;
+                        const assignedDepartment = departmentById.get(departmentId);
+                        const theme = getDepartmentTheme(assignedDepartment?.themeColor);
                         const unitCount = minimizedBreaches.filter(breach => (folderAssignments[breach.id] || UNGROUPED_FOLDER_ID) === folder.id).length;
 
                         return (
@@ -317,8 +417,8 @@ const PinnedDepartments: React.FC = () => {
                                     display: 'flex',
                                     flexDirection: 'column',
                                     gap: '6px',
-                                    border: '1px solid rgba(56, 163, 160, 0.16)',
-                                    backgroundColor: 'rgba(56, 163, 160, 0.03)',
+                                    border: assignedDepartment ? `1px solid ${theme.border}` : '1px solid rgba(56, 163, 160, 0.16)',
+                                    backgroundColor: assignedDepartment ? theme.surface : 'rgba(56, 163, 160, 0.03)',
                                     padding: '8px'
                                 }}
                             >
@@ -359,7 +459,9 @@ const PinnedDepartments: React.FC = () => {
 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.62rem', color: 'var(--color-primary-dim)' }}>
                                     <span>{unitCount} unit{unitCount === 1 ? '' : 's'}</span>
-                                    <span>{departmentId === UNASSIGNED_DEPARTMENT_ID ? 'UNASSIGNED' : 'ASSIGNED'}</span>
+                                    <span style={{ color: departmentId === UNASSIGNED_DEPARTMENT_ID ? 'var(--color-primary-dim)' : theme.accent }}>
+                                        {departmentId === UNASSIGNED_DEPARTMENT_ID ? 'UNASSIGNED' : 'ASSIGNED'}
+                                    </span>
                                 </div>
 
                                 <select

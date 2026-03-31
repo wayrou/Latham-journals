@@ -58,6 +58,73 @@ export const OS_MODULE_DEFINITIONS: OSModuleDefinition[] = [
     }
 ];
 
+const DUNGEON_STATE_STORAGE_KEY = 'latham_dungeon_state';
+const DUNGEON_PRESSURE_STORAGE_KEY = 'latham_dungeon_pressure_state';
+
+function getDungeonPressureSnapshot() {
+    try {
+        const summary = localStorage.getItem(DUNGEON_PRESSURE_STORAGE_KEY);
+        if (summary) {
+            const parsedSummary = JSON.parse(summary);
+            const deepestFloor = Number(parsedSummary?.deepestFloor) || 1;
+            const breachCount = Number(parsedSummary?.breachCount) || 0;
+            const claimedFloorCount = Number(parsedSummary?.claimedFloorCount) || 0;
+            const tokenMintCount = Number(parsedSummary?.tokenMintCount) || 0;
+            return {
+                deepestFloor,
+                breachCount,
+                claimedFloorCount,
+                tokenMintCount
+            };
+        }
+
+        const saved = localStorage.getItem(DUNGEON_STATE_STORAGE_KEY);
+        if (!saved) {
+            return {
+                deepestFloor: 1,
+                breachCount: 0,
+                claimedFloorCount: 0,
+                tokenMintCount: 0
+            };
+        }
+        const parsed = JSON.parse(saved);
+        const floorMaps = parsed?.floorMaps;
+        const breaches = Array.isArray(parsed?.breaches) ? parsed.breaches : [];
+        const claimedFloors = Array.isArray(parsed?.claimedFloors) ? parsed.claimedFloors : [];
+        const tokenMintCount = claimedFloors.reduce((total: number, floor: any) => {
+            const infrastructure = Array.isArray(floor?.infrastructure) ? floor.infrastructure : [];
+            return total + infrastructure.filter((item: any) => item?.type === 'token-mint').length;
+        }, 0);
+
+        if (!floorMaps || typeof floorMaps !== 'object') {
+            return {
+                deepestFloor: 1,
+                breachCount: breaches.length,
+                claimedFloorCount: claimedFloors.length,
+                tokenMintCount
+            };
+        }
+
+        const floors = Object.keys(floorMaps)
+            .map(Number)
+            .filter(Number.isFinite);
+
+        return {
+            deepestFloor: floors.length > 0 ? Math.max(...floors) : 1,
+            breachCount: breaches.length,
+            claimedFloorCount: claimedFloors.length,
+            tokenMintCount
+        };
+    } catch {
+        return {
+            deepestFloor: 1,
+            breachCount: 0,
+            claimedFloorCount: 0,
+            tokenMintCount: 0
+        };
+    }
+}
+
 const DEFAULT_OS_MODULES: Record<OSModuleId, number> = {
     'claim-authority': 0,
     'scheduler-kernel': 0,
@@ -129,6 +196,7 @@ interface GameState {
         name: string; 
         nickname?: string;
         strategy: 'responsible' | 'brave' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic' | 'manager' | 'builder'; 
+        assignedDepartmentId?: string;
         lastAction?: string;
         budget: number;
         maxBudget: number;
@@ -159,6 +227,7 @@ interface GameState {
     unlockedCiphers: string[];
     // Degradation
     systemClutter: number;
+    runCollapseCount: number;
     sessionStartTime: number;
     // Refactor / Prestige
     refactorCount: number;
@@ -191,6 +260,7 @@ interface GameStateContextType extends GameState {
     upgradeCrawlerBulk: (stat: 'baseDmg' | 'maxHpBoost' | 'speedBoost' | 'maxBreachWindows' | 'minerYield', quantity?: number | 'max') => number;
     addCodexAgent: (strategy: 'responsible' | 'brave' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic' | 'manager' | 'builder') => boolean;
     setAgentStrategy: (id: string, strategy: 'responsible' | 'brave' | 'disabled' | 'parallel' | 'defrag' | 'scrapper' | 'mechanic' | 'manager' | 'builder') => void;
+    assignAgentDepartment: (id: string, departmentId?: string) => void;
     setAgentNickname: (id: string, nickname: string) => void;
     setAgentBudget: (id: string, maxBudget: number) => void;
     setAgentRefillRate: (id: string, refillRate: number) => void;
@@ -224,6 +294,7 @@ interface GameStateContextType extends GameState {
     attemptCipherUnlock: (cipherId: string, password: string) => boolean;
     getDegradation: () => DegradationMultipliers;
     reduceClutter: (amount: number) => boolean;
+    stabilizeClutter: (amount: number) => void;
     initiateRefactor: (bonusType: RefactorBonus['type']) => boolean;
     scrapBrickedNode: () => void;
     repairBrickedNode: () => boolean;
@@ -281,6 +352,7 @@ const defaultState: GameState = {
     cipherFragments: [],
     unlockedCiphers: [],
     systemClutter: 0,
+    runCollapseCount: 0,
     sessionStartTime: Date.now(),
     refactorCount: 0,
     refactorBonuses: [],
@@ -355,6 +427,24 @@ const createAgentName = (existingAgents: Array<{ name: string }>) => {
     return `AGENT_${Date.now().toString().slice(-4).padStart(4, '0')}`;
 };
 
+const buildCollapsedRunState = (prev: GameState): GameState => ({
+    ...prev,
+    computeUnits: 0,
+    crawlerStats: { ...defaultState.crawlerStats },
+    codexAgents: [],
+    systemClutter: 0,
+    runCollapseCount: prev.runCollapseCount + 1,
+    sessionStartTime: Date.now(),
+    activeBrickedNode: null,
+    repairingNodes: [],
+    activeAlert: {
+        id: `alert-${Date.now()}`,
+        title: 'SYSTEM COLLAPSE',
+        message: 'SYS_CLUTTER EXCEEDED 150%. THE CURRENT BREACH RUN HAS BEEN TERMINATED.',
+        type: 'critical'
+    }
+});
+
 export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [gameState, setGameState] = useState<GameState>(() => {
         const saved = localStorage.getItem('latham_journals_state');
@@ -392,6 +482,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                             ? a.name.toUpperCase()
                             : `AGENT_${String(a.id ?? '').slice(-4).padStart(4, '0')}`,
                         nickname: typeof a.nickname === 'string' ? a.nickname : '',
+                        assignedDepartmentId: typeof a.assignedDepartmentId === 'string' ? a.assignedDepartmentId : undefined,
                         budget: Number(a.budget) || 0,
                         maxBudget: Number(a.maxBudget) || 0,
                         refillRate: Number(a.refillRate) || 0
@@ -410,6 +501,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     isArchivePinned: !!parsed.isArchivePinned,
                     isMainContentMinimized: !!parsed.isMainContentMinimized,
                     notificationsEnabled: parsed.notificationsEnabled !== false,
+                    runCollapseCount: Number(parsed.runCollapseCount) || 0,
                     opsLedger: Array.isArray(parsed.opsLedger)
                         ? parsed.opsLedger
                             .filter((entry: any) => entry && typeof entry.message === 'string')
@@ -514,8 +606,18 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
     }, []);
 
     useEffect(() => {
-        localStorage.setItem('latham_journals_state', JSON.stringify(gameState));
-    }, [gameState]);
+        const persistGameState = () => {
+            try {
+                localStorage.setItem('latham_journals_state', JSON.stringify(stateRef.current));
+            } catch (error) {
+                console.error('PRGN_OS: Failed to persist game state.', error);
+            }
+        };
+
+        persistGameState();
+        const interval = setInterval(persistGameState, 1500);
+        return () => clearInterval(interval);
+    }, []);
 
     // Codex Agents Automation Loop
     useEffect(() => {
@@ -527,6 +629,22 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                 let cuRemaining = prev.computeUnits;
                 let currentClutter = prev.systemClutter;
                 let newAlert = prev.activeAlert;
+                const dungeonPressure = getDungeonPressureSnapshot();
+                const depthPressure = Math.max(0, dungeonPressure.deepestFloor - 1);
+                const defragSpendCap =
+                    250 +
+                    (depthPressure * 250) +
+                    (dungeonPressure.breachCount * 10) +
+                    (dungeonPressure.claimedFloorCount * 50) +
+                    (dungeonPressure.tokenMintCount * 150);
+                const defragEfficiency = Math.max(
+                    0.004,
+                    0.12 -
+                        (depthPressure * 0.004) -
+                        (dungeonPressure.breachCount * 0.00008) -
+                        (dungeonPressure.claimedFloorCount * 0.003) -
+                        (dungeonPressure.tokenMintCount * 0.01)
+                );
 
                 const updatedAgents = prev.codexAgents.map(agent => {
                     // Step 0: Refill Budget
@@ -575,8 +693,8 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                         const availableFunds = agentBudget > 0
                             ? agentBudget
                             : (maxB === 0 ? cuRemaining : 0);
-                        const spendAmount = Math.min(250, availableFunds);
-                        const cleanupAmount = Math.min(currentClutter, spendAmount * 0.75);
+                        const spendAmount = Math.min(defragSpendCap, availableFunds);
+                        const cleanupAmount = Math.min(currentClutter, spendAmount * defragEfficiency);
 
                         if (currentClutter > 0 && spendAmount > 0 && cleanupAmount > 0) {
                             if (agentBudget > 0) {
@@ -585,8 +703,8 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                                 cuRemaining -= spendAmount;
                             }
                             currentClutter = Math.max(0, currentClutter - cleanupAmount);
-                            lastAction = `DEFRAGGING (-${cleanupAmount.toFixed(1)}%)`;
-                            newAlert = { id: `alert-${Date.now()}`, title: 'AGENT ACTION COMPLETE', message: `${agentLabel} completed defrag cleanup: -${cleanupAmount.toFixed(1)}% clutter.`, type: 'info' };
+                            lastAction = `DEFRAGGING F${dungeonPressure.deepestFloor} (-${cleanupAmount.toFixed(1)}%)`;
+                            newAlert = { id: `alert-${Date.now()}`, title: 'AGENT ACTION COMPLETE', message: `${agentLabel} completed defrag cleanup: -${cleanupAmount.toFixed(1)}% clutter at floor pressure ${dungeonPressure.deepestFloor}.`, type: 'info' };
                         } else {
                             lastAction = currentClutter === 0 ? 'SYSTEM CLEAN' : 'CHARGING DEFRAG CACHE';
                         }
@@ -962,6 +1080,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     name, 
                     nickname: '',
                     strategy, 
+                    assignedDepartmentId: undefined,
                     lastAction: 'INITIALIZING...', 
                     budget: 0, 
                     maxBudget: 0, 
@@ -977,6 +1096,13 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
         setGameState(prev => ({
             ...prev,
             codexAgents: prev.codexAgents.map(a => a.id === id ? { ...a, strategy } : a)
+        }));
+    }, []);
+
+    const assignAgentDepartment = useCallback((id: string, departmentId?: string) => {
+        setGameState(prev => ({
+            ...prev,
+            codexAgents: prev.codexAgents.map(a => a.id === id ? { ...a, assignedDepartmentId: departmentId || undefined } : a)
         }));
     }, []);
 
@@ -1282,6 +1408,15 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
         return true;
     }, []);
 
+    const stabilizeClutter = useCallback((amount: number) => {
+        if (amount <= 0) return;
+
+        setGameState(prev => ({
+            ...prev,
+            systemClutter: Math.max(0, prev.systemClutter - amount)
+        }));
+    }, []);
+
     const initiateRefactor = useCallback((bonusType: RefactorBonus['type']) => {
         let success = false;
         setGameState(prev => {
@@ -1375,8 +1510,18 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                 const now = Date.now();
                 const memoryCompressionLevel = prev.osModules['memory-compression'] ?? 0;
                 const clutterGrowthMultiplier = Math.max(0.35, 1 - (memoryCompressionLevel * 0.15));
-                const clutterGrowth = calculateClutterGrowth(prev.sessionStartTime, now) * clutterGrowthMultiplier;
-                const newClutter = Math.min(100, prev.systemClutter + clutterGrowth);
+                const dungeonPressure = getDungeonPressureSnapshot();
+                const depthPressure = Math.max(0, dungeonPressure.deepestFloor - 1);
+                const elapsedGrowth = calculateClutterGrowth(prev.sessionStartTime, now) * clutterGrowthMultiplier;
+                const operationPressureBurst =
+                    (depthPressure * 0.35) +
+                    (dungeonPressure.breachCount * 0.12) +
+                    (dungeonPressure.claimedFloorCount * 1.5) +
+                    (dungeonPressure.tokenMintCount * 4);
+                const clutterGrowth =
+                    elapsedGrowth +
+                    (operationPressureBurst * clutterGrowthMultiplier);
+                const newClutter = Math.min(150, prev.systemClutter + clutterGrowth);
 
                 // Check for completed repairs
                 const done: RepairJob[] = [];
@@ -1403,7 +1548,19 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                     }
                 });
 
+                if (newClutter >= 150) {
+                    return buildCollapsedRunState(prev);
+                }
+
                 if (newClutter !== prev.systemClutter || done.length > 0) {
+                    const overloadAlert = prev.systemClutter < 100 && newClutter >= 100
+                        ? {
+                            id: `alert-${Date.now()}`,
+                            title: 'CRITICAL OVERLOAD',
+                            message: `SYS_CLUTTER HAS ENTERED CRITICAL OVERLOAD AT ${newClutter.toFixed(1)}%. REDUCE IT BEFORE 150% OR THE RUN WILL COLLAPSE.`,
+                            type: 'critical' as const
+                        }
+                        : null;
                     return {
                         ...prev,
                         systemClutter: newClutter,
@@ -1411,7 +1568,7 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
                         repairingNodes: remaining,
                         cipherFragments: newFragments,
                         computeUnits: prev.computeUnits + cuBonus,
-                        activeAlert: done.length > 0 ? newAlert : prev.activeAlert
+                        activeAlert: overloadAlert || (done.length > 0 ? newAlert : prev.activeAlert)
                     };
                 }
                 return prev;
@@ -1426,11 +1583,11 @@ export const GameStateProvider: React.FC<{ children: ReactNode }> = ({ children 
             unlockFile, markFileAsRead, resetGame, unlockSystem,
             addRestoration, setArchiveRestoration, startJob, compileNode,
             addComputeUnits, spendComputeUnits, addProtocolTokens, spendProtocolTokens, upgradeCrawler, upgradeCrawlerBulk,
-            addCodexAgent, setAgentStrategy, setAgentNickname, getUpgradeCost,
+            addCodexAgent, setAgentStrategy, assignAgentDepartment, setAgentNickname, getUpgradeCost,
             triggerAlert, dismissAlert,
             getJobProgress, isJobActive, isJobCompleted,
             addCipherFragment, attemptCipherUnlock, getDegradation,
-            reduceClutter, initiateRefactor, scrapBrickedNode,
+            reduceClutter, stabilizeClutter, initiateRefactor, scrapBrickedNode,
             repairBrickedNode, setDefaultSpec, getCipherProgress,
             setActiveBrickedNode, toggleAgentsPinned, toggleWalletsPinned, toggleMetaMapPinned, toggleDepartmentsPinned, toggleBuildPinned, toggleBreachCliPinned, toggleLedgerPinned, toggleModulesPinned,
             toggleTerminalPinned, toggleInboxPinned, toggleArchivePinned, toggleMainContentMinimized, toggleNotificationsEnabled, setNotificationsEnabled, setBreachCliInput, appendBreachCliLine, clearBreachCliHistory, setTerminalInput, setTerminalHistory,

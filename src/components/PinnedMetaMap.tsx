@@ -20,6 +20,8 @@ const getInfrastructureVisual = (type: FloorInfrastructure['type']) => {
             return { label: 'Q', backgroundColor: 'rgba(255, 90, 90, 0.25)', color: '#000', boxShadow: '0 0 6px rgba(255, 90, 90, 0.35)' };
         case 'dispatch-beacon':
             return { label: 'B', backgroundColor: 'rgba(255, 210, 80, 0.28)', color: '#000', boxShadow: '0 0 6px rgba(255, 210, 80, 0.35)' };
+        case 'token-mint':
+            return { label: 'T', backgroundColor: 'rgba(160, 120, 255, 0.3)', color: '#000', boxShadow: '0 0 6px rgba(160, 120, 255, 0.4)' };
         default:
             return { label: 'I', backgroundColor: 'rgba(0, 255, 255, 0.2)', color: '#000', boxShadow: 'none' };
     }
@@ -60,23 +62,33 @@ const getInfrastructureTooltip = (
     if (infrastructure.type === 'repair-dock') {
         return [
             `REPAIR-DOCK // FLOOR ${floor}`,
-            'Reserved Peregrine support infrastructure',
-            'No live gameplay stat is currently assigned'
+            'Restart hub for breached crawlers',
+            `Passive repair: +${sameTypeCount * 4} HP every 4s`,
+            'Restarts prefer the highest claimed dock floor'
         ].join('\n');
     }
 
     if (infrastructure.type === 'quarantine-node') {
         return [
             `QUARANTINE-NODE // FLOOR ${floor}`,
-            'Reserved containment infrastructure',
-            'No live gameplay stat is currently assigned'
+            `Containment sweep: -${(sameTypeCount * (0.8 + (floor * 0.05))).toFixed(1)} clutter per cycle`,
+            'Acts globally while the floor remains claimed'
+        ].join('\n');
+    }
+
+    if (infrastructure.type === 'token-mint') {
+        return [
+            `TOKEN-MINT // FLOOR ${floor}`,
+            'Conversion rate: 10m CU -> 1 TOK',
+            'Cycle interval: 15s',
+            'Requires at least one QUARANTINE-NODE on the same floor'
         ].join('\n');
     }
 
     return [
         `DISPATCH-BEACON // FLOOR ${floor}`,
-        'Reserved coordination infrastructure',
-        'No live gameplay stat is currently assigned'
+        'Redeploys and restarts land on beacon sectors first',
+        'Makes claimed floors stronger as logistics hubs'
     ].join('\n');
 };
 

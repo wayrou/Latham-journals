@@ -36,7 +36,7 @@ export const useBreachCli = () => {
         assignFolderToDepartment,
         assignBreachToFolder,
         getFloorProgress,
-        initNewBreach,
+        initBreachesBulk,
         nextFloor,
         setBreachSpec,
         toggleMinimize
@@ -215,13 +215,9 @@ export const useBreachCli = () => {
             } else if (missingForTarget === 0) {
                 appendTerminalLine(`${targetFolderName} already has ${targetAssigned.length} crawler${targetAssigned.length === 1 ? '' : 's'}.`);
             } else {
-                const createdIds: string[] = [];
-                for (let i = 0; i < toCreate; i += 1) {
-                    const breachId = initNewBreach(undefined, { folderId, isMinimized: true });
-                    if (breachId) {
-                        createdIds.push(breachId);
-                    }
-                }
+                const createdIds = toCreate > 0
+                    ? initBreachesBulk(toCreate, undefined, { folderId, isMinimized: true })
+                    : [];
 
                 const remainingNeeded = Math.max(0, missingForTarget - createdIds.length);
                 const movableBreaches = breaches
@@ -355,7 +351,7 @@ export const useBreachCli = () => {
         folderAssignments,
         getFloorProgress,
         getOrCreateFolderIdByName,
-        initNewBreach,
+        initBreachesBulk,
         minimizedBreaches,
         nextFloor,
         setBreachSpec,

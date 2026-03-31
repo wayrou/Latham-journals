@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useGameState } from '../context/GameStateContext';
+import { useDungeon } from '../context/DungeonContext';
 import { Cpu, Activity } from 'lucide-react';
 import { useDraggable } from '../hooks/useDraggable';
 
 const PinnedAgents: React.FC = () => {
     const { codexAgents, isAgentsPinned, pinnedPositions, updatePinnedPosition, setAgentNickname } = useGameState();
+    const { breachDepartments } = useDungeon();
     const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
     const [draftNickname, setDraftNickname] = useState('');
 
@@ -69,6 +71,7 @@ const PinnedAgents: React.FC = () => {
                 {codexAgents.map((agent) => {
                     const isEditing = editingAgentId === agent.id;
                     const displayName = agent.nickname?.trim() ? `${agent.nickname} // ${agent.name}` : agent.name;
+                    const assignedDepartment = breachDepartments.find(department => department.id === agent.assignedDepartmentId);
 
                     return (
                         <div key={agent.id} style={{ borderLeft: '2px solid var(--color-primary-dim)', paddingLeft: '10px' }}>
@@ -85,6 +88,12 @@ const PinnedAgents: React.FC = () => {
                                     ({agent.strategy.toUpperCase()})
                                 </span>
                             </div>
+
+                            {agent.strategy === 'manager' && (
+                                <div style={{ color: 'var(--color-accent)', fontSize: '0.62rem', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                    {assignedDepartment ? `DEPARTMENT // ${assignedDepartment.name}` : 'GLOBAL COORDINATION'}
+                                </div>
+                            )}
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem' }}>
                                 <span style={{

@@ -10,7 +10,8 @@ export interface DegradationMultipliers {
 
 /**
  * Calculate degradation multipliers from current system clutter level.
- * Clutter ranges from 0 (fresh) to 100 (fully degraded).
+ * Clutter penalties scale up to 100 (fully degraded).
+ * Values above 100 are treated as overload and handled elsewhere.
  */
 export function getDegradationMultipliers(clutter: number): DegradationMultipliers {
     const c = Math.max(0, Math.min(100, clutter));

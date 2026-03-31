@@ -5,6 +5,7 @@ import { useSound } from '../hooks/useSound';
 import { findNextStep } from '../utils/pathfinding';
 import { generateMetaMap, MAX_SEED_FLOORS, type Room } from '../utils/metaMap';
 import { rollCipherDrop } from '../utils/cipherSystem';
+import { formatComputeUnits } from '../utils/numberFormat';
 
 export interface BreachFolder {
     id: string;
@@ -14,11 +15,36 @@ export interface BreachFolder {
 export interface BreachDepartment {
     id: string;
     name: string;
+    themeColor: DepartmentThemeId;
     defaultSpec: CrawlerSpec | 'mixed';
     commandScript: CommandScriptId;
+    allocationMode: DepartmentAllocationMode;
+    targetFloorMin: number;
+    targetFloorMax: number;
 }
 
 export type CommandScriptId = 'default' | 'scout' | 'lockrun' | 'harvest' | 'hold' | 'deep-push';
+export type DepartmentAllocationMode = 'balanced' | 'expansion' | 'infrastructure';
+export type DepartmentThemeId = 'cyan' | 'amber' | 'lime' | 'rose' | 'violet' | 'ocean';
+
+export const DEPARTMENT_THEME_OPTIONS: Array<{
+    id: DepartmentThemeId;
+    label: string;
+    accent: string;
+    border: string;
+    surface: string;
+}> = [
+    { id: 'cyan', label: 'CYAN', accent: '#38a3a0', border: 'rgba(56, 163, 160, 0.35)', surface: 'rgba(56, 163, 160, 0.08)' },
+    { id: 'amber', label: 'AMBER', accent: '#d8a44f', border: 'rgba(216, 164, 79, 0.35)', surface: 'rgba(216, 164, 79, 0.08)' },
+    { id: 'lime', label: 'LIME', accent: '#7fbf5f', border: 'rgba(127, 191, 95, 0.35)', surface: 'rgba(127, 191, 95, 0.08)' },
+    { id: 'rose', label: 'ROSE', accent: '#d46a7a', border: 'rgba(212, 106, 122, 0.35)', surface: 'rgba(212, 106, 122, 0.08)' },
+    { id: 'violet', label: 'VIOLET', accent: '#8d7ae6', border: 'rgba(141, 122, 230, 0.35)', surface: 'rgba(141, 122, 230, 0.08)' },
+    { id: 'ocean', label: 'OCEAN', accent: '#4f8dd8', border: 'rgba(79, 141, 216, 0.35)', surface: 'rgba(79, 141, 216, 0.08)' }
+];
+
+export const getDepartmentTheme = (themeId?: DepartmentThemeId) => (
+    DEPARTMENT_THEME_OPTIONS.find(theme => theme.id === themeId) ?? DEPARTMENT_THEME_OPTIONS[0]
+);
 
 export type FloorInfrastructureType =
     | 'mining-rig'
@@ -26,7 +52,8 @@ export type FloorInfrastructureType =
     | 'repair-dock'
     | 'scanner-tower'
     | 'quarantine-node'
-    | 'dispatch-beacon';
+    | 'dispatch-beacon'
+    | 'token-mint';
 
 export interface FloorInfrastructure {
     type: FloorInfrastructureType;
@@ -112,11 +139,13 @@ interface DungeonContextType {
     togglePin: (id: string) => void;
     terminateBreach: (id: string) => void;
     initNewBreach: (spec?: CrawlerSpec, options?: { folderId?: string; isMinimized?: boolean }) => string | null;
+    initBreachesBulk: (count: number, spec?: CrawlerSpec, options?: { folderId?: string; isMinimized?: boolean }) => string[];
     mascotSay: (id: string, msg: string) => void;
     restartBreach: (id: string) => void;
     setBreachSpec: (id: string, spec: CrawlerSpec) => void;
     toggleMarker: (rx: number, ry: number, label?: string) => void;
     nextFloor: (id: string) => void;
+    moveBreachToFloor: (id: string, targetFloor: number) => boolean;
     claimFloor: (floor: number) => boolean;
     buildInfrastructure: (floor: number, type: FloorInfrastructureType) => boolean;
     createBreachFolder: (name: string) => string | null;
@@ -127,7 +156,7 @@ interface DungeonContextType {
     renameBreachDepartment: (id: string, name: string) => void;
     deleteBreachDepartment: (id: string) => void;
     assignFolderToDepartment: (folderId: string, departmentId: string) => void;
-    updateDepartmentSettings: (id: string, updates: Partial<Pick<BreachDepartment, 'defaultSpec' | 'commandScript'>>) => void;
+    updateDepartmentSettings: (id: string, updates: Partial<Pick<BreachDepartment, 'themeColor' | 'defaultSpec' | 'commandScript' | 'allocationMode' | 'targetFloorMin' | 'targetFloorMax'>>) => void;
 }
 
 const DungeonContext = createContext<DungeonContextType | undefined>(undefined);
@@ -143,9 +172,95 @@ const ASSIGNMENT_STORAGE_KEY = 'latham_breach_folder_assignments';
 const DEPARTMENT_STORAGE_KEY = 'latham_breach_departments';
 const DEPARTMENT_ASSIGNMENT_STORAGE_KEY = 'latham_breach_department_assignments';
 const DUNGEON_STATE_STORAGE_KEY = 'latham_dungeon_state';
+const DUNGEON_PRESSURE_STORAGE_KEY = 'latham_dungeon_pressure_state';
 export const UNGROUPED_FOLDER_ID = 'ungrouped';
 export const UNASSIGNED_DEPARTMENT_ID = 'unassigned';
 const MAX_INFRASTRUCTURE_SLOTS = 4;
+const MAX_SAVED_BREACH_LOGS = 6;
+const MAX_SAVED_VISITED_ROOMS = 12;
+
+function loadSavedDepartments(): BreachDepartment[] {
+    try {
+        const savedDepartments = localStorage.getItem(DEPARTMENT_STORAGE_KEY);
+        if (!savedDepartments) return [];
+        const parsedDepartments = JSON.parse(savedDepartments);
+        if (!Array.isArray(parsedDepartments)) return [];
+
+        return parsedDepartments
+            .filter((department: Partial<BreachDepartment>) =>
+                department &&
+                typeof department.id === 'string' &&
+                typeof department.name === 'string' &&
+                (department.defaultSpec === 'mixed' || ['fighter', 'rogue', 'miner', 'summoner', 'explorer'].includes(department.defaultSpec || ''))
+            )
+            .map((department: Partial<BreachDepartment>) => ({
+                id: department.id as string,
+                name: department.name as string,
+                themeColor: DEPARTMENT_THEME_OPTIONS.some(theme => theme.id === department.themeColor)
+                    ? department.themeColor as DepartmentThemeId
+                    : DEPARTMENT_THEME_OPTIONS[0].id,
+                defaultSpec: (department.defaultSpec as BreachDepartment['defaultSpec']) || 'mixed',
+                commandScript: ['default', 'scout', 'lockrun', 'harvest', 'hold', 'deep-push'].includes(department.commandScript || '')
+                    ? department.commandScript as CommandScriptId
+                    : 'default',
+                allocationMode: ['balanced', 'expansion', 'infrastructure'].includes(department.allocationMode || '')
+                    ? department.allocationMode as DepartmentAllocationMode
+                    : 'balanced',
+                targetFloorMin: normalizeDepartmentRange(department.targetFloorMin, department.targetFloorMax).min,
+                targetFloorMax: normalizeDepartmentRange(department.targetFloorMin, department.targetFloorMax).max
+            }));
+    } catch {
+        return [];
+    }
+}
+
+function loadSavedFolders(): BreachFolder[] {
+    try {
+        const savedFolders = localStorage.getItem(FOLDER_STORAGE_KEY);
+        if (!savedFolders) return [];
+        const parsedFolders = JSON.parse(savedFolders);
+        return Array.isArray(parsedFolders)
+            ? parsedFolders.filter((folder: BreachFolder) => folder && typeof folder.id === 'string' && typeof folder.name === 'string')
+            : [];
+    } catch {
+        return [];
+    }
+}
+
+function loadSavedDepartmentAssignments(): Record<string, string> {
+    try {
+        const savedDepartmentAssignments = localStorage.getItem(DEPARTMENT_ASSIGNMENT_STORAGE_KEY);
+        if (!savedDepartmentAssignments) return {};
+        const parsedDepartmentAssignments = JSON.parse(savedDepartmentAssignments);
+        return parsedDepartmentAssignments && typeof parsedDepartmentAssignments === 'object'
+            ? parsedDepartmentAssignments
+            : {};
+    } catch {
+        return {};
+    }
+}
+
+function loadSavedFolderAssignments(): Record<string, string> {
+    try {
+        const savedAssignments = localStorage.getItem(ASSIGNMENT_STORAGE_KEY);
+        if (!savedAssignments) return {};
+        const parsedAssignments = JSON.parse(savedAssignments);
+        return parsedAssignments && typeof parsedAssignments === 'object'
+            ? parsedAssignments
+            : {};
+    } catch {
+        return {};
+    }
+}
+
+function normalizeDepartmentRange(minFloor?: number, maxFloor?: number) {
+    const normalizedMin = Math.min(MAX_SEED_FLOORS, Math.max(1, Math.floor(minFloor || 1)));
+    const normalizedMax = Math.min(MAX_SEED_FLOORS, Math.max(normalizedMin, Math.floor(maxFloor || MAX_SEED_FLOORS)));
+    return {
+        min: normalizedMin,
+        max: normalizedMax
+    };
+}
 
 const buildUniqueCallsign = (existingCallsigns: string[]) => {
     const usedRoots = existingCallsigns.map(callsign => callsign.split('_')[0] + '_' + callsign.split('_')[1]);
@@ -154,13 +269,174 @@ const buildUniqueCallsign = (existingCallsigns: string[]) => {
     return `${baseCallsign}_${Math.floor(Math.random() * 99).toString().padStart(2, '0')}`;
 };
 
+interface PersistedBreachState {
+    id: string;
+    callsign: string;
+    spec: CrawlerSpec;
+    floor: number;
+    roomX: number;
+    roomY: number;
+    playerPos?: Position;
+    hp?: number;
+    maxHp?: number;
+    logs?: string[];
+    mascotMessage?: string | null;
+    isAutoPlaying?: boolean;
+    isPinned?: boolean;
+    isPaused?: boolean;
+    isMinimized?: boolean;
+    lastInputTime?: number;
+    visitedRooms?: string[];
+    daemons?: Daemon[];
+    minerTickAccum?: number;
+}
+
+interface PersistedDungeonState {
+    breaches?: unknown;
+    floorMaps?: unknown;
+    floorProgress?: unknown;
+    roomMarkers?: unknown;
+    claimedFloors?: unknown;
+    activeBreachId?: unknown;
+}
+
+function loadPersistedDungeonState(): PersistedDungeonState | null {
+    try {
+        const saved = localStorage.getItem(DUNGEON_STATE_STORAGE_KEY);
+        if (!saved) return null;
+        return JSON.parse(saved) as PersistedDungeonState;
+    } catch {
+        return null;
+    }
+}
+
+function serializeBreachForStorage(breach: BreachInstance): PersistedBreachState {
+    return {
+        id: breach.id,
+        callsign: breach.callsign,
+        spec: breach.spec,
+        floor: breach.floor,
+        roomX: breach.roomX,
+        roomY: breach.roomY,
+        playerPos: breach.playerPos,
+        hp: breach.hp,
+        maxHp: breach.maxHp,
+        logs: breach.logs.slice(-MAX_SAVED_BREACH_LOGS),
+        mascotMessage: breach.mascotMessage,
+        isAutoPlaying: breach.isAutoPlaying,
+        isPinned: breach.isPinned,
+        isPaused: breach.isPaused,
+        isMinimized: breach.isMinimized,
+        lastInputTime: breach.lastInputTime,
+        visitedRooms: (breach.visitedRooms || []).slice(-MAX_SAVED_VISITED_ROOMS),
+        daemons: Array.isArray(breach.daemons) ? breach.daemons : [],
+        minerTickAccum: breach.minerTickAccum || 0
+    };
+}
+
+function hydrateSavedBreaches(
+    rawBreaches: unknown,
+    rawFloorMaps: unknown
+): BreachInstance[] {
+    if (!Array.isArray(rawBreaches)) return [];
+
+    const savedFloorMaps = rawFloorMaps && typeof rawFloorMaps === 'object'
+        ? rawFloorMaps as Record<number, Room[][]>
+        : {};
+
+    return rawBreaches
+        .map((entry): BreachInstance | null => {
+            if (!entry || typeof entry !== 'object') return null;
+
+            const saved = entry as Partial<PersistedBreachState>;
+            if (typeof saved.id !== 'string' || typeof saved.callsign !== 'string') return null;
+            if (!['fighter', 'rogue', 'miner', 'summoner', 'explorer'].includes(saved.spec || '')) return null;
+
+            const floor = Math.max(1, Math.floor(Number(saved.floor) || 1));
+            const fallbackMap = savedFloorMaps[floor] ?? generateMetaMap(floor);
+            const roomX = Math.min(9, Math.max(0, Math.floor(Number(saved.roomX) || 4)));
+            const roomY = Math.min(9, Math.max(0, Math.floor(Number(saved.roomY) || 4)));
+            const room = fallbackMap[roomY]?.[roomX] ?? fallbackMap[4]?.[4] ?? fallbackMap[0]?.[0];
+            if (!room) return null;
+
+            const savedPos = saved.playerPos;
+            const playerPos =
+                savedPos &&
+                typeof savedPos.x === 'number' &&
+                typeof savedPos.y === 'number' &&
+                room.grid[savedPos.y]?.[savedPos.x] !== undefined &&
+                room.grid[savedPos.y]?.[savedPos.x] !== '#'
+                    ? { x: savedPos.x, y: savedPos.y }
+                    : room.playerSpawn;
+
+            const rawMaxHp = Number(saved.maxHp);
+            const maxHp = Math.max(1, Math.floor(Number.isFinite(rawMaxHp) ? rawMaxHp : 20));
+            const rawHp = Number(saved.hp);
+            const hp = Math.max(0, Math.min(maxHp, Math.floor(Number.isFinite(rawHp) ? rawHp : maxHp)));
+
+            return {
+                id: saved.id,
+                callsign: saved.callsign,
+                spec: saved.spec as CrawlerSpec,
+                floor,
+                roomX,
+                roomY,
+                grid: room.grid,
+                playerPos,
+                stairsPos: room.stairsPos,
+                enemies: [...room.enemies],
+                loot: [...room.loot],
+                hp,
+                maxHp,
+                logs: Array.isArray(saved.logs) ? saved.logs.slice(-MAX_SAVED_BREACH_LOGS) : [],
+                mascotMessage: typeof saved.mascotMessage === 'string' ? saved.mascotMessage : null,
+                isAutoPlaying: !!saved.isAutoPlaying,
+                isPinned: !!saved.isPinned,
+                isPaused: !!saved.isPaused,
+                isMinimized: !!saved.isMinimized,
+                lastInputTime: Number(saved.lastInputTime) || Date.now(),
+                visitedRooms: Array.isArray(saved.visitedRooms) && saved.visitedRooms.length > 0
+                    ? saved.visitedRooms.slice(-MAX_SAVED_VISITED_ROOMS)
+                    : [`${roomX},${roomY}`],
+                daemons: Array.isArray(saved.daemons) ? saved.daemons : [],
+                minerTickAccum: Number(saved.minerTickAccum) || 0
+            };
+        })
+        .filter((breach): breach is BreachInstance => !!breach);
+}
+
+function buildDungeonPressureSnapshot(
+    floorMaps: Record<number, Room[][]>,
+    claimedFloors: ClaimedFloor[],
+    breaches: BreachInstance[]
+) {
+    const deepestFloor = Math.max(
+        1,
+        ...Object.keys(floorMaps)
+            .map(Number)
+            .filter(Number.isFinite)
+    );
+
+    const tokenMintCount = claimedFloors.reduce((total, floor) => (
+        total + (Array.isArray(floor.infrastructure) ? floor.infrastructure : []).filter(item => item.type === 'token-mint').length
+    ), 0);
+
+    return {
+        deepestFloor,
+        breachCount: breaches.length,
+        claimedFloorCount: claimedFloors.length,
+        tokenMintCount
+    };
+}
+
 const INFRASTRUCTURE_TOKEN_MULT: Record<FloorInfrastructureType, number> = {
     'mining-rig': 1,
     'relay-uplink': 1,
     'repair-dock': 1,
     'scanner-tower': 1,
     'quarantine-node': 2,
-    'dispatch-beacon': 2
+    'dispatch-beacon': 2,
+    'token-mint': 3
 };
 
 function pickInfrastructureRoom(
@@ -180,6 +456,36 @@ function countInfrastructureByType(
     type: FloorInfrastructureType
 ): number {
     return claimedFloor?.infrastructure.filter(item => item.type === type).length ?? 0;
+}
+
+function pickSpawnRoom(
+    floorMap: Room[][],
+    claimedFloor: ClaimedFloor | undefined,
+    preferredTypes: FloorInfrastructureType[] = []
+) {
+    for (const type of preferredTypes) {
+        const match = claimedFloor?.infrastructure.find(item => item.type === type);
+        if (match) {
+            return {
+                roomX: match.roomX,
+                roomY: match.roomY,
+                room: floorMap[match.roomY][match.roomX]
+            };
+        }
+    }
+
+    const centerRooms = [
+        { x: 4, y: 4 },
+        { x: 5, y: 4 },
+        { x: 4, y: 5 },
+        { x: 5, y: 5 }
+    ];
+    const target = centerRooms[Math.floor(Math.random() * centerRooms.length)];
+    return {
+        roomX: target.x,
+        roomY: target.y,
+        room: floorMap[target.y][target.x]
+    };
 }
 
 function pickScannerRevealRoom(floorMap: Room[][]): Room | null {
@@ -241,85 +547,62 @@ function getAssignedDepartmentForBreach(
 }
 
 export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { addRestoration, setArchiveRestoration, addComputeUnits, addProtocolTokens, spendComputeUnits, spendProtocolTokens, spendAgentFunds, triggerAlert, computeUnits, protocolTokens, crawlerStats, getDegradation, recordOpsLedgerEvent, getOSModuleLevel, getMaxClaimCount,
+    const { addRestoration, setArchiveRestoration, addComputeUnits, addProtocolTokens, spendComputeUnits, spendProtocolTokens, spendAgentFunds, triggerAlert, computeUnits, protocolTokens, crawlerStats, getDegradation, recordOpsLedgerEvent, getOSModuleLevel, getMaxClaimCount, stabilizeClutter, runCollapseCount,
             addCipherFragment, refactorBonuses, defaultCrawlerSpec, setActiveBrickedNode, codexAgents } = useGameState();
     const { playSound } = useSound();
+    const initialSavedDungeonStateRef = useRef<PersistedDungeonState | null>(loadPersistedDungeonState());
 
     const [breaches, setBreaches] = useState<BreachInstance[]>(() => {
-        try {
-            const saved = localStorage.getItem(DUNGEON_STATE_STORAGE_KEY);
-            if (!saved) return [];
-            const parsed = JSON.parse(saved);
-            return Array.isArray(parsed?.breaches) ? parsed.breaches : [];
-        } catch {
-            return [];
-        }
+        const parsed = initialSavedDungeonStateRef.current;
+        return hydrateSavedBreaches(parsed?.breaches, parsed?.floorMaps);
     });
     const [floorMaps, setFloorMaps] = useState<Record<number, Room[][]>>(() => {
-        try {
-            const saved = localStorage.getItem(DUNGEON_STATE_STORAGE_KEY);
-            if (!saved) return { 1: generateMetaMap(1) };
-            const parsed = JSON.parse(saved);
-            const savedMaps = parsed?.floorMaps;
-            if (savedMaps && typeof savedMaps === 'object' && Object.keys(savedMaps).length > 0) {
-                return savedMaps;
-            }
-        } catch {
-            // Fall back to a fresh map.
+        const parsed = initialSavedDungeonStateRef.current;
+        const savedMaps = parsed?.floorMaps;
+        if (savedMaps && typeof savedMaps === 'object' && Object.keys(savedMaps).length > 0) {
+            return savedMaps as Record<number, Room[][]>;
         }
         return { 1: generateMetaMap(1) };
     });
     const [floorProgress, setFloorProgress] = useState<Record<number, { keysFound: string[]; locksOpened: string[] }>>(() => {
-        try {
-            const saved = localStorage.getItem(DUNGEON_STATE_STORAGE_KEY);
-            if (!saved) return { 1: { keysFound: [], locksOpened: [] } };
-            const parsed = JSON.parse(saved);
-            const savedProgress = parsed?.floorProgress;
-            if (savedProgress && typeof savedProgress === 'object' && Object.keys(savedProgress).length > 0) {
-                return savedProgress;
-            }
-        } catch {
-            // Fall back to default progress.
+        const parsed = initialSavedDungeonStateRef.current;
+        const savedProgress = parsed?.floorProgress;
+        if (savedProgress && typeof savedProgress === 'object' && Object.keys(savedProgress).length > 0) {
+            return savedProgress as Record<number, { keysFound: string[]; locksOpened: string[] }>;
         }
         return { 1: { keysFound: [], locksOpened: [] } };
     });
     const [roomMarkers, setRoomMarkers] = useState<Record<string, string>>(() => {
-        try {
-            const saved = localStorage.getItem(DUNGEON_STATE_STORAGE_KEY);
-            if (!saved) return {};
-            const parsed = JSON.parse(saved);
-            return parsed?.roomMarkers && typeof parsed.roomMarkers === 'object' ? parsed.roomMarkers : {};
-        } catch {
-            return {};
-        }
+        const parsed = initialSavedDungeonStateRef.current;
+        return parsed?.roomMarkers && typeof parsed.roomMarkers === 'object'
+            ? parsed.roomMarkers as Record<string, string>
+            : {};
     });
     const [claimedFloors, setClaimedFloors] = useState<ClaimedFloor[]>(() => {
-        try {
-            const saved = localStorage.getItem(DUNGEON_STATE_STORAGE_KEY);
-            if (!saved) return [];
-            const parsed = JSON.parse(saved);
-            return Array.isArray(parsed?.claimedFloors) ? parsed.claimedFloors : [];
-        } catch {
-            return [];
-        }
+        const parsed = initialSavedDungeonStateRef.current;
+        return Array.isArray(parsed?.claimedFloors) ? parsed.claimedFloors as ClaimedFloor[] : [];
     });
-    const [breachDepartments, setBreachDepartments] = useState<BreachDepartment[]>([]);
-    const [breachFolders, setBreachFolders] = useState<BreachFolder[]>([]);
-    const [departmentAssignments, setDepartmentAssignments] = useState<Record<string, string>>({});
-    const [folderAssignments, setFolderAssignments] = useState<Record<string, string>>({});
+    const [breachDepartments, setBreachDepartments] = useState<BreachDepartment[]>(loadSavedDepartments);
+    const [breachFolders, setBreachFolders] = useState<BreachFolder[]>(loadSavedFolders);
+    const [departmentAssignments, setDepartmentAssignments] = useState<Record<string, string>>(loadSavedDepartmentAssignments);
+    const [folderAssignments, setFolderAssignments] = useState<Record<string, string>>(loadSavedFolderAssignments);
     const [activeBreachId, setActiveBreachId] = useState<string | null>(() => {
-        try {
-            const saved = localStorage.getItem(DUNGEON_STATE_STORAGE_KEY);
-            if (!saved) return null;
-            const parsed = JSON.parse(saved);
-            return typeof parsed?.activeBreachId === 'string' ? parsed.activeBreachId : null;
-        } catch {
-            return null;
-        }
+        const parsed = initialSavedDungeonStateRef.current;
+        return typeof parsed?.activeBreachId === 'string' ? parsed.activeBreachId : null;
     });
     const mascotTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-    const hasLoadedOrganizationState = useRef(false);
+    const hasLoadedOrganizationState = useRef(true);
     const breachesRef = useRef<BreachInstance[]>(breaches);
+    const aiCursorRef = useRef(0);
+    const uplinkCursorRef = useRef(0);
+    const dungeonSnapshotRef = useRef({
+        breaches,
+        floorMaps,
+        floorProgress,
+        roomMarkers,
+        claimedFloors,
+        activeBreachId
+    });
     const gameStateRef = useRef({ getDegradation, addCipherFragment, refactorBonuses, crawlerStats });
     const currentFloor = breaches.find(b => b.id === activeBreachId)?.floor ?? breaches[0]?.floor ?? 1;
     const metaMap = floorMaps[currentFloor] ?? floorMaps[1];
@@ -335,21 +618,68 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, [availableFloors, setArchiveRestoration]);
 
     useEffect(() => {
-        localStorage.setItem(DUNGEON_STATE_STORAGE_KEY, JSON.stringify({
+        dungeonSnapshotRef.current = {
             breaches,
             floorMaps,
             floorProgress,
             roomMarkers,
             claimedFloors,
             activeBreachId
-        }));
+        };
     }, [activeBreachId, breaches, claimedFloors, floorMaps, floorProgress, roomMarkers]);
+
+    useEffect(() => {
+        const persistDungeonState = () => {
+            const snapshot = dungeonSnapshotRef.current;
+            try {
+                localStorage.setItem(DUNGEON_STATE_STORAGE_KEY, JSON.stringify({
+                    breaches: snapshot.breaches.map(serializeBreachForStorage),
+                    floorMaps: snapshot.floorMaps,
+                    floorProgress: snapshot.floorProgress,
+                    roomMarkers: snapshot.roomMarkers,
+                    claimedFloors: snapshot.claimedFloors,
+                    activeBreachId: snapshot.activeBreachId
+                }));
+                localStorage.setItem(
+                    DUNGEON_PRESSURE_STORAGE_KEY,
+                    JSON.stringify(buildDungeonPressureSnapshot(snapshot.floorMaps, snapshot.claimedFloors, snapshot.breaches))
+                );
+            } catch (error) {
+                console.error('PRGN_OS: Failed to persist dungeon state.', error);
+            }
+        };
+
+        persistDungeonState();
+        const interval = setInterval(persistDungeonState, 1500);
+        return () => clearInterval(interval);
+    }, []);
 
     useEffect(() => {
         if (activeBreachId && !breaches.some(breach => breach.id === activeBreachId)) {
             setActiveBreachId(breaches[0]?.id ?? null);
         }
     }, [activeBreachId, breaches]);
+
+    useEffect(() => {
+        if (runCollapseCount <= 0) return;
+
+        setBreaches([]);
+        setFloorMaps({ 1: generateMetaMap(1) });
+        setFloorProgress({ 1: { keysFound: [], locksOpened: [] } });
+        setRoomMarkers({});
+        setClaimedFloors([]);
+        setBreachDepartments([]);
+        setBreachFolders([]);
+        setDepartmentAssignments({});
+        setFolderAssignments({});
+        setActiveBreachId(null);
+        localStorage.removeItem(FOLDER_STORAGE_KEY);
+        localStorage.removeItem(ASSIGNMENT_STORAGE_KEY);
+        localStorage.removeItem(DEPARTMENT_STORAGE_KEY);
+        localStorage.removeItem(DEPARTMENT_ASSIGNMENT_STORAGE_KEY);
+        localStorage.removeItem(DUNGEON_STATE_STORAGE_KEY);
+        localStorage.removeItem(DUNGEON_PRESSURE_STORAGE_KEY);
+    }, [runCollapseCount]);
 
     useEffect(() => {
         breachesRef.current = breaches;
@@ -362,6 +692,45 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const getFloorProgress = useCallback((floor: number) => {
         return floorProgress[floor] ?? { keysFound: [], locksOpened: [] };
     }, [floorProgress]);
+
+    const pickRecoveryFloorForBreach = useCallback((breach: BreachInstance | undefined) => {
+        if (!breach) return 1;
+
+        const assignedDepartment = getAssignedDepartmentForBreach(
+            breach.id,
+            breachFolders,
+            breachDepartments,
+            folderAssignments,
+            departmentAssignments
+        );
+        const range = assignedDepartment
+            ? normalizeDepartmentRange(assignedDepartment.targetFloorMin, assignedDepartment.targetFloorMax)
+            : null;
+
+        const filterRange = (entry: ClaimedFloor) => !range || (entry.floor >= range.min && entry.floor <= range.max);
+
+        const repairFloorsInRange = claimedFloors
+            .filter(entry => filterRange(entry) && countInfrastructureByType(entry, 'repair-dock') > 0)
+            .sort((a, b) => b.floor - a.floor);
+        if (repairFloorsInRange[0]) return repairFloorsInRange[0].floor;
+
+        const repairFloors = claimedFloors
+            .filter(entry => countInfrastructureByType(entry, 'repair-dock') > 0)
+            .sort((a, b) => b.floor - a.floor);
+        if (repairFloors[0]) return repairFloors[0].floor;
+
+        const beaconFloorsInRange = claimedFloors
+            .filter(entry => filterRange(entry) && countInfrastructureByType(entry, 'dispatch-beacon') > 0)
+            .sort((a, b) => b.floor - a.floor);
+        if (beaconFloorsInRange[0]) return beaconFloorsInRange[0].floor;
+
+        const beaconFloors = claimedFloors
+            .filter(entry => countInfrastructureByType(entry, 'dispatch-beacon') > 0)
+            .sort((a, b) => b.floor - a.floor);
+        if (beaconFloors[0]) return beaconFloors[0].floor;
+
+        return 1;
+    }, [breachDepartments, breachFolders, claimedFloors, departmentAssignments, folderAssignments]);
 
     useEffect(() => {
         setClaimedFloors(prev => {
@@ -396,8 +765,9 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const getInfrastructureCost = useCallback((floor: number, type: FloorInfrastructureType) => {
         const logisticsLevel = getOSModuleLevel('logistics-mesh');
         const discountMultiplier = Math.max(0.6, 1 - (logisticsLevel * 0.1));
+        const cuBase = 150 + (Math.max(1, floor) * 50) + (type === 'mining-rig' ? 0 : 75) + (type === 'token-mint' ? 450 : 0);
         return {
-            cu: Math.max(10, Math.round(((150 + (Math.max(1, floor) * 50) + (type === 'mining-rig' ? 0 : 75)) * 10) * discountMultiplier)),
+            cu: Math.max(10, Math.round((cuBase * 10) * discountMultiplier)),
             tokens: Math.max(1, Math.round(Math.max(1, floor) * 10 * INFRASTRUCTURE_TOKEN_MULT[type] * discountMultiplier))
         };
     }, [getOSModuleLevel]);
@@ -415,78 +785,39 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, [getClaimedFloor]);
 
     useEffect(() => {
-        try {
-            const savedDepartments = localStorage.getItem(DEPARTMENT_STORAGE_KEY);
-            const savedDepartmentAssignments = localStorage.getItem(DEPARTMENT_ASSIGNMENT_STORAGE_KEY);
-            const savedFolders = localStorage.getItem(FOLDER_STORAGE_KEY);
-            const savedAssignments = localStorage.getItem(ASSIGNMENT_STORAGE_KEY);
-
-            if (savedDepartments) {
-                const parsedDepartments = JSON.parse(savedDepartments);
-                if (Array.isArray(parsedDepartments)) {
-                    setBreachDepartments(parsedDepartments
-                        .filter((department: Partial<BreachDepartment>) =>
-                            department &&
-                            typeof department.id === 'string' &&
-                            typeof department.name === 'string' &&
-                            (department.defaultSpec === 'mixed' || ['fighter', 'rogue', 'miner', 'summoner', 'explorer'].includes(department.defaultSpec || ''))
-                        )
-                        .map((department: Partial<BreachDepartment>) => ({
-                            id: department.id as string,
-                            name: department.name as string,
-                            defaultSpec: (department.defaultSpec as BreachDepartment['defaultSpec']) || 'mixed',
-                            commandScript: ['default', 'scout', 'lockrun', 'harvest', 'hold', 'deep-push'].includes(department.commandScript || '')
-                                ? department.commandScript as CommandScriptId
-                                : 'default'
-                        })));
-                }
-            }
-
-            if (savedDepartmentAssignments) {
-                const parsedDepartmentAssignments = JSON.parse(savedDepartmentAssignments);
-                if (parsedDepartmentAssignments && typeof parsedDepartmentAssignments === 'object') {
-                    setDepartmentAssignments(parsedDepartmentAssignments);
-                }
-            }
-
-            if (savedFolders) {
-                const parsedFolders = JSON.parse(savedFolders);
-                if (Array.isArray(parsedFolders)) {
-                    setBreachFolders(parsedFolders.filter((folder: BreachFolder) => folder && typeof folder.id === 'string' && typeof folder.name === 'string'));
-                }
-            }
-
-            if (savedAssignments) {
-                const parsedAssignments = JSON.parse(savedAssignments);
-                if (parsedAssignments && typeof parsedAssignments === 'object') {
-                    setFolderAssignments(parsedAssignments);
-                }
-            }
-        } catch {
-            // Ignore malformed local folder state.
-        } finally {
-            hasLoadedOrganizationState.current = true;
-        }
-    }, []);
-
-    useEffect(() => {
         if (!hasLoadedOrganizationState.current) return;
-        localStorage.setItem(DEPARTMENT_STORAGE_KEY, JSON.stringify(breachDepartments));
+        try {
+            localStorage.setItem(DEPARTMENT_STORAGE_KEY, JSON.stringify(breachDepartments));
+        } catch (error) {
+            console.error('PRGN_OS: Failed to persist breach departments.', error);
+        }
     }, [breachDepartments]);
 
     useEffect(() => {
         if (!hasLoadedOrganizationState.current) return;
-        localStorage.setItem(DEPARTMENT_ASSIGNMENT_STORAGE_KEY, JSON.stringify(departmentAssignments));
+        try {
+            localStorage.setItem(DEPARTMENT_ASSIGNMENT_STORAGE_KEY, JSON.stringify(departmentAssignments));
+        } catch (error) {
+            console.error('PRGN_OS: Failed to persist department assignments.', error);
+        }
     }, [departmentAssignments]);
 
     useEffect(() => {
         if (!hasLoadedOrganizationState.current) return;
-        localStorage.setItem(FOLDER_STORAGE_KEY, JSON.stringify(breachFolders));
+        try {
+            localStorage.setItem(FOLDER_STORAGE_KEY, JSON.stringify(breachFolders));
+        } catch (error) {
+            console.error('PRGN_OS: Failed to persist breach folders.', error);
+        }
     }, [breachFolders]);
 
     useEffect(() => {
         if (!hasLoadedOrganizationState.current) return;
-        localStorage.setItem(ASSIGNMENT_STORAGE_KEY, JSON.stringify(folderAssignments));
+        try {
+            localStorage.setItem(ASSIGNMENT_STORAGE_KEY, JSON.stringify(folderAssignments));
+        } catch (error) {
+            console.error('PRGN_OS: Failed to persist folder assignments.', error);
+        }
     }, [folderAssignments]);
 
     useEffect(() => {
@@ -541,7 +872,16 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (existing) return existing.id;
 
         const id = `department-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
-        setBreachDepartments(prev => [...prev, { id, name: normalized, defaultSpec: 'mixed', commandScript: 'default' }]);
+        setBreachDepartments(prev => [...prev, {
+            id,
+            name: normalized,
+            themeColor: DEPARTMENT_THEME_OPTIONS[prev.length % DEPARTMENT_THEME_OPTIONS.length].id,
+            defaultSpec: 'mixed',
+            commandScript: 'default',
+            allocationMode: 'balanced',
+            targetFloorMin: 1,
+            targetFloorMax: MAX_SEED_FLOORS
+        }]);
         return id;
     }, [breachDepartments]);
 
@@ -599,10 +939,23 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
     }, []);
 
-    const updateDepartmentSettings = useCallback((id: string, updates: Partial<Pick<BreachDepartment, 'defaultSpec' | 'commandScript'>>) => {
-        setBreachDepartments(prev => prev.map(department => (
-            department.id === id ? { ...department, ...updates } : department
-        )));
+    const updateDepartmentSettings = useCallback((id: string, updates: Partial<Pick<BreachDepartment, 'themeColor' | 'defaultSpec' | 'commandScript' | 'allocationMode' | 'targetFloorMin' | 'targetFloorMax'>>) => {
+        setBreachDepartments(prev => prev.map(department => {
+            if (department.id !== id) return department;
+
+            const nextMin = updates.targetFloorMin ?? department.targetFloorMin;
+            const nextMax = updates.targetFloorMax ?? department.targetFloorMax;
+            const normalizedRange = normalizeDepartmentRange(nextMin, nextMax);
+
+            return {
+                ...department,
+                ...updates,
+                themeColor: updates.themeColor ?? department.themeColor,
+                allocationMode: updates.allocationMode ?? department.allocationMode,
+                targetFloorMin: normalizedRange.min,
+                targetFloorMax: normalizedRange.max
+            };
+        }));
     }, []);
 
     // Keep refs fresh
@@ -659,29 +1012,32 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
     }, [crawlerStats.maxBreachWindows, activeBreachId]);
 
-    const initNewBreach = useCallback((spec?: CrawlerSpec, options?: { folderId?: string; isMinimized?: boolean }) => {
-        if (breachesRef.current.length >= (crawlerStats.maxBreachWindows || 1)) {
-            return null;
-        }
+    const initBreachesBulk = useCallback((count: number, spec?: CrawlerSpec, options?: { folderId?: string; isMinimized?: boolean }) => {
+        const requested = Math.max(0, Math.floor(count));
+        const capacity = crawlerStats.maxBreachWindows || 1;
+        const availableSlots = Math.max(0, capacity - breachesRef.current.length);
+        const createCount = Math.min(requested, availableSlots);
+        if (createCount <= 0) return [];
 
-        const id = `breach-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
         const chosenSpec = spec || defaultCrawlerSpec;
         const mult = SPEC_MULT[chosenSpec];
         const baseHp = 20 + crawlerStats.maxHpBoost;
         const initialHp = Math.floor(baseHp * mult.hp);
         const floorMap = floorMaps[1] ?? generateMetaMap(1);
-        
-        const rx = 4 + Math.floor(Math.random() * 2);
-        const ry = 4 + Math.floor(Math.random() * 2);
-        const room = floorMap[ry][rx];
+        const now = Date.now();
+        const existingCallsigns = breachesRef.current.map(breach => breach.callsign);
+        const discoveredRooms = new Set<string>();
+        const newBreaches: BreachInstance[] = [];
 
-        setBreaches(prev => {
-            if (prev.length >= (crawlerStats.maxBreachWindows || 1)) return prev;
-
-            const callsign = buildUniqueCallsign(prev.map(b => b.callsign));
-
+        for (let index = 0; index < createCount; index += 1) {
+            const id = `breach-${now}-${index}-${Math.random().toString(36).slice(2, 6)}`;
+            const rx = 4 + Math.floor(Math.random() * 2);
+            const ry = 4 + Math.floor(Math.random() * 2);
+            const room = floorMap[ry][rx];
+            const callsign = buildUniqueCallsign([...existingCallsigns, ...newBreaches.map(breach => breach.callsign)]);
             const specLabel = chosenSpec.toUpperCase();
-            const newBreach: BreachInstance = {
+
+            newBreaches.push({
                 id,
                 callsign,
                 spec: chosenSpec,
@@ -701,34 +1057,54 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 isPinned: false,
                 isPaused: false,
                 isMinimized: !!options?.isMinimized,
-                lastInputTime: Date.now(),
+                lastInputTime: now,
                 visitedRooms: [`${rx},${ry}`],
                 daemons: [],
                 minerTickAccum: 0
-            };
-
-            playSound('boot');
-            // Mark initial room as discovered
-            updateFloorMap(1, prevMap => {
-                const newMap = [...prevMap];
-                const row = [...newMap[ry]];
-                row[rx] = { ...row[rx], isDiscovered: true };
-                newMap[ry] = row;
-                return newMap;
             });
-            return [...prev, newBreach];
-        });
-        if (options?.folderId && options.folderId !== UNGROUPED_FOLDER_ID) {
-            setFolderAssignments(prev => ({ ...prev, [id]: options.folderId as string }));
+            discoveredRooms.add(`${rx},${ry}`);
         }
+
+        setBreaches(prev => [...prev, ...newBreaches]);
+        breachesRef.current = [...breachesRef.current, ...newBreaches];
+
+        if (discoveredRooms.size > 0) {
+            updateFloorMap(1, prevMap => {
+                const nextMap = [...prevMap];
+                discoveredRooms.forEach(marker => {
+                    const [roomXStr, roomYStr] = marker.split(',');
+                    const roomX = Number(roomXStr);
+                    const roomY = Number(roomYStr);
+                    if (!nextMap[roomY]?.[roomX]) return;
+                    const row = [...nextMap[roomY]];
+                    row[roomX] = { ...row[roomX], isDiscovered: true };
+                    nextMap[roomY] = row;
+                });
+                return nextMap;
+            });
+        }
+
+        if (options?.folderId && options.folderId !== UNGROUPED_FOLDER_ID) {
+            const folderId = options.folderId;
+            setFolderAssignments(prev => ({
+                ...prev,
+                ...Object.fromEntries(newBreaches.map(breach => [breach.id, folderId]))
+            }));
+        }
+
+        playSound('boot');
         recordOpsLedgerEvent({
             type: 'crawler',
-            message: `Crawler initiated // ${chosenSpec.toUpperCase()}${options?.folderId ? ' // folder assigned' : ''}.`,
+            message: `${createCount} crawler${createCount === 1 ? '' : 's'} initiated // ${chosenSpec.toUpperCase()}${options?.folderId ? ' // folder assigned' : ''}.`,
             floor: 1
         });
-        breachesRef.current = [...breachesRef.current, { id } as BreachInstance];
-        return id;
-    }, [crawlerStats.maxBreachWindows, crawlerStats.maxHpBoost, playSound, floorMaps, defaultCrawlerSpec, updateFloorMap, recordOpsLedgerEvent]);
+
+        return newBreaches.map(breach => breach.id);
+    }, [crawlerStats.maxBreachWindows, crawlerStats.maxHpBoost, defaultCrawlerSpec, floorMaps, playSound, recordOpsLedgerEvent, updateFloorMap]);
+
+    const initNewBreach = useCallback((spec?: CrawlerSpec, options?: { folderId?: string; isMinimized?: boolean }) => {
+        return initBreachesBulk(1, spec, options)[0] ?? null;
+    }, [initBreachesBulk]);
 
     const terminateBreach = useCallback((id: string) => {
         const breach = breachesRef.current.find(b => b.id === id);
@@ -758,10 +1134,12 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const restartBreach = useCallback((id: string) => {
         const breach = breachesRef.current.find(item => item.id === id);
-        const floorMap = floorMaps[1] ?? generateMetaMap(1);
-        const rx = 4 + Math.floor(Math.random() * 2);
-        const ry = 4 + Math.floor(Math.random() * 2);
-        const room = floorMap[ry][rx];
+        const recoveryFloor = pickRecoveryFloorForBreach(breach);
+        const floorMap = floorMaps[recoveryFloor] ?? generateMetaMap(recoveryFloor);
+        const claimedFloor = claimedFloors.find(entry => entry.floor === recoveryFloor);
+        const dockCount = countInfrastructureByType(claimedFloor, 'repair-dock');
+        const spawn = pickSpawnRoom(floorMap, claimedFloor, ['repair-dock', 'dispatch-beacon']);
+        const room = spawn.room;
         
         setBreaches(prev => prev.map(b => {
             if (b.id !== id) return b;
@@ -770,9 +1148,9 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const initialHp = Math.floor(baseHp * mult.hp);
             return {
                 ...b,
-                floor: 1,
-                roomX: rx,
-                roomY: ry,
+                floor: recoveryFloor,
+                roomX: spawn.roomX,
+                roomY: spawn.roomY,
                 grid: room.grid,
                 playerPos: room.playerSpawn,
                 stairsPos: room.stairsPos,
@@ -783,17 +1161,17 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 logs: [...b.logs.slice(-2), '[SYSTEM REBOOTING...]', '[RE-INITIATING BREACH PROTOCOL]'],
                 isAutoPlaying: false,
                 isPaused: false,
-                visitedRooms: [`${rx},${ry}`],
+                visitedRooms: [`${spawn.roomX},${spawn.roomY}`],
                 daemons: [],
                 minerTickAccum: 0
             };
         }));
 
-        updateFloorMap(1, prevMap => {
+        updateFloorMap(recoveryFloor, prevMap => {
             const newMap = [...prevMap];
-            const row = [...newMap[ry]];
-            row[rx] = { ...row[rx], isDiscovered: true };
-            newMap[ry] = row;
+            const row = [...newMap[spawn.roomY]];
+            row[spawn.roomX] = { ...row[spawn.roomX], isDiscovered: true };
+            newMap[spawn.roomY] = row;
             return newMap;
         });
 
@@ -801,11 +1179,11 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (breach) {
             recordOpsLedgerEvent({
                 type: 'crawler',
-                message: `${breach.callsign} restarted on floor 1.`,
-                floor: 1
+                message: `${breach.callsign} restarted on floor ${recoveryFloor}${dockCount > 0 ? ' via repair-dock' : ''}.`,
+                floor: recoveryFloor
             });
         }
-    }, [crawlerStats.maxHpBoost, playSound, floorMaps, updateFloorMap, recordOpsLedgerEvent]);
+    }, [claimedFloors, crawlerStats.maxHpBoost, floorMaps, pickRecoveryFloorForBreach, playSound, recordOpsLedgerEvent, updateFloorMap]);
 
     const setBreachSpec = useCallback((id: string, spec: CrawlerSpec) => {
         const breach = breachesRef.current.find(b => b.id === id);
@@ -1124,10 +1502,25 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const effects: { cu: number, res: number, sounds: string[] }[] = [];
             const updatedRooms: Array<Room & { floor: number }> = [];
             const pendingFloorAdvances: string[] = [];
+            const pendingFloorTransfers: Array<{ id: string; targetFloor: number }> = [];
             const deg = gameStateRef.current.getDegradation();
 
             setBreaches(currentBreaches => {
-                return currentBreaches.map(b => {
+                const totalBreaches = currentBreaches.length;
+                if (totalBreaches === 0) return currentBreaches;
+
+                const batchSize = totalBreaches <= 160 ? totalBreaches : Math.ceil(totalBreaches / 4);
+                const batchStart = aiCursorRef.current % totalBreaches;
+                const batchEnd = batchStart + batchSize;
+                const shouldProcessIndex = (index: number) => (
+                    batchEnd <= totalBreaches
+                        ? index >= batchStart && index < batchEnd
+                        : index >= batchStart || index < (batchEnd % totalBreaches)
+                );
+                aiCursorRef.current = (batchStart + batchSize) % totalBreaches;
+
+                return currentBreaches.map((b, index) => {
+                    if (!shouldProcessIndex(index) && b.id !== activeBreachId) return b;
                     if (b.isPaused || b.hp <= 0) return b;
 
                     const isBeingControlled = b.id === activeBreachId && (Date.now() - b.lastInputTime < 4000);
@@ -1158,6 +1551,29 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                         departmentAssignments
                     );
                     const commandScript = assignedDepartment?.commandScript ?? 'default';
+                    const departmentRange = assignedDepartment
+                        ? normalizeDepartmentRange(assignedDepartment.targetFloorMin, assignedDepartment.targetFloorMax)
+                        : { min: 1, max: MAX_SEED_FLOORS };
+                    const floorCeiling = departmentRange.max;
+                    const floorFloor = departmentRange.min;
+
+                    if (updatedB.floor > floorCeiling && floorMaps[floorCeiling]) {
+                        pendingFloorTransfers.push({ id: updatedB.id, targetFloor: floorCeiling });
+                        return {
+                            ...updatedB,
+                            isAutoPlaying: true,
+                            logs: [...updatedB.logs.slice(-4), `[RANGE: RETURNING TO FLOOR ${floorCeiling}]`]
+                        };
+                    }
+
+                    if (updatedB.floor < floorFloor && floorMaps[floorFloor]) {
+                        pendingFloorTransfers.push({ id: updatedB.id, targetFloor: floorFloor });
+                        return {
+                            ...updatedB,
+                            isAutoPlaying: true,
+                            logs: [...updatedB.logs.slice(-4), `[RANGE: REDEPLOYING TO FLOOR ${floorFloor}]`]
+                        };
+                    }
 
                     // === MINER: stop moving under auto-play and generate passive CU ===
                     let minerMult = 1;
@@ -1247,7 +1663,16 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     const currentPos = updatedB.playerPos;
                     const floorIsComplete = getFloorProgress(updatedB.floor).locksOpened.length >= 3;
 
-                    if ((commandScript === 'deep-push' || updatedB.spec === 'explorer') && floorIsComplete) {
+                    if (updatedB.floor < floorFloor && floorIsComplete) {
+                        pendingFloorAdvances.push(updatedB.id);
+                        return {
+                            ...updatedB,
+                            isAutoPlaying: true,
+                            logs: [...updatedB.logs.slice(-4), `[RANGE: ADVANCING TOWARD FLOOR ${floorFloor}]`]
+                        };
+                    }
+
+                    if ((commandScript === 'deep-push' || updatedB.spec === 'explorer') && floorIsComplete && updatedB.floor < floorCeiling) {
                         pendingFloorAdvances.push(updatedB.id);
                         return {
                             ...updatedB,
@@ -1609,6 +2034,9 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 e.sounds.forEach(s => playSound(s as any));
             });
 
+            [...new Map(pendingFloorTransfers.map(entry => [entry.id, entry])).values()].forEach(entry => {
+                moveBreachToFloor(entry.id, entry.targetFloor);
+            });
             [...new Set(pendingFloorAdvances)].forEach(id => nextFloor(id));
 
             // Check for newly cleared rooms in metadata
@@ -1630,7 +2058,7 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }, getTickDuration());
 
         return () => clearInterval(aiInterval);
-    }, [activeBreachId, crawlerStats.speedBoost, addComputeUnits, addRestoration, playSound, processBreachMove, getMetaMapForFloor, updateFloorMap, getMinerTicksRequired, getTickDuration]);
+    }, [activeBreachId, crawlerStats.speedBoost, addComputeUnits, addRestoration, breachDepartments, breachFolders, departmentAssignments, floorMaps, folderAssignments, getFloorProgress, getMetaMapForFloor, getMinerTicksRequired, getTickDuration, playSound, processBreachMove, updateFloorMap]);
 
     const toggleMarker = useCallback((rx: number, ry: number, label: string = 'MARK') => {
         const key = `${rx},${ry}`;
@@ -1706,6 +2134,82 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return true;
     }, [addComputeUnits, floorMaps, getClaimedFloor, getInfrastructureCost, spendComputeUnits, spendProtocolTokens, recordOpsLedgerEvent]);
 
+    const transitionBreachToFloor = useCallback((
+        id: string,
+        targetFloor: number,
+        options?: {
+            allowGenerate?: boolean;
+            logMessage?: string;
+            ledgerMessage?: string;
+        }
+    ) => {
+        const breach = breachesRef.current.find(b => b.id === id);
+        if (!breach) return false;
+
+        const normalizedFloor = Math.max(1, Math.floor(targetFloor));
+        if (normalizedFloor === breach.floor) return true;
+
+        const existingMap = floorMaps[normalizedFloor];
+        if (!existingMap && !options?.allowGenerate) return false;
+
+        const targetMap = existingMap ?? generateMetaMap(normalizedFloor);
+        const claimedFloor = claimedFloors.find(entry => entry.floor === normalizedFloor);
+        const spawn = pickSpawnRoom(targetMap, claimedFloor, ['dispatch-beacon']);
+        const startRoom = spawn.room;
+
+        setFloorMaps(prev => {
+            const baseMap = prev[normalizedFloor] ?? targetMap;
+            const updatedMap = [...baseMap];
+            const row = [...updatedMap[spawn.roomY]];
+            row[spawn.roomX] = { ...row[spawn.roomX], isDiscovered: true };
+            updatedMap[spawn.roomY] = row;
+            return { ...prev, [normalizedFloor]: updatedMap };
+        });
+        setFloorProgress(prev => (
+            prev[normalizedFloor]
+                ? prev
+                : { ...prev, [normalizedFloor]: { keysFound: [], locksOpened: [] } }
+        ));
+        setRoomMarkers({});
+
+        setBreaches(prev => prev.map(b => {
+            if (b.id !== id) return b;
+            return {
+                ...b,
+                floor: normalizedFloor,
+                roomX: spawn.roomX,
+                roomY: spawn.roomY,
+                grid: startRoom.grid,
+                playerPos: startRoom.playerSpawn,
+                stairsPos: startRoom.stairsPos,
+                enemies: [...startRoom.enemies],
+                loot: [...startRoom.loot],
+                visitedRooms: [`${spawn.roomX},${spawn.roomY}`],
+                daemons: [],
+                minerTickAccum: 0,
+                logs: [...b.logs.slice(-4), options?.logMessage || `[TRANSITIONING TO FLOOR ${normalizedFloor}]`]
+            };
+        }));
+        recordOpsLedgerEvent({
+            type: 'advance',
+            message: options?.ledgerMessage || `${breach.callsign} moved to floor ${normalizedFloor}.`,
+            floor: normalizedFloor
+        });
+        playSound('boot');
+        return true;
+    }, [claimedFloors, floorMaps, playSound, recordOpsLedgerEvent]);
+
+    const moveBreachToFloor = useCallback((id: string, targetFloor: number) => {
+        const breach = breachesRef.current.find(b => b.id === id);
+        if (!breach) return false;
+
+        return transitionBreachToFloor(id, targetFloor, {
+            allowGenerate: false,
+            logMessage: `[REDEPLOYED TO FLOOR ${Math.max(1, Math.floor(targetFloor))}]`,
+            ledgerMessage: `${breach.callsign} redeployed to floor ${Math.max(1, Math.floor(targetFloor))}.`
+        });
+    }, [transitionBreachToFloor]);
+
     const nextFloor = useCallback((id: string) => {
         const breach = breachesRef.current.find(b => b.id === id);
         if (!breach) return;
@@ -1714,51 +2218,12 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (progress.locksOpened.length < 3) return;
 
         const nextF = breach.floor + 1;
-        const newMap = floorMaps[nextF] ?? generateMetaMap(nextF);
-        const rx = 4 + Math.floor(Math.random() * 2);
-        const ry = 4 + Math.floor(Math.random() * 2);
-        const startRoom = newMap[ry][rx];
-
-        setFloorMaps(prev => {
-            const baseMap = prev[nextF] ?? newMap;
-            const updatedMap = [...baseMap];
-            const row = [...updatedMap[ry]];
-            row[rx] = { ...row[rx], isDiscovered: true };
-            updatedMap[ry] = row;
-            return { ...prev, [nextF]: updatedMap };
+        transitionBreachToFloor(id, nextF, {
+            allowGenerate: true,
+            logMessage: `[TRANSITIONING TO FLOOR ${nextF}]`,
+            ledgerMessage: `${breach.callsign} advanced to floor ${nextF}.`
         });
-        setFloorProgress(prev => (
-            prev[nextF]
-                ? prev
-                : { ...prev, [nextF]: { keysFound: [], locksOpened: [] } }
-        ));
-        setRoomMarkers({});
-
-        setBreaches(prev => prev.map(b => {
-            if (b.id !== id) return b;
-            return {
-                ...b,
-                floor: nextF,
-                roomX: rx,
-                roomY: ry,
-                grid: startRoom.grid,
-                playerPos: startRoom.playerSpawn,
-                stairsPos: startRoom.stairsPos,
-                enemies: [...startRoom.enemies],
-                loot: [...startRoom.loot],
-                visitedRooms: [`${rx},${ry}`],
-                daemons: [],
-                minerTickAccum: 0,
-                logs: [...b.logs.slice(-4), `[TRANSITIONING TO FLOOR ${nextF}]`]
-            };
-        }));
-        recordOpsLedgerEvent({
-            type: 'advance',
-            message: `${breach.callsign} advanced to floor ${nextF}.`,
-            floor: nextF
-        });
-        playSound('boot');
-    }, [floorMaps, getFloorProgress, playSound, recordOpsLedgerEvent]);
+    }, [getFloorProgress, transitionBreachToFloor]);
 
     useEffect(() => {
         if (claimedFloors.length === 0) return;
@@ -1785,6 +2250,38 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         return () => clearInterval(interval);
     }, [addComputeUnits, claimedFloors, recordOpsLedgerEvent]);
+
+    useEffect(() => {
+        if (claimedFloors.length === 0) return;
+
+        const TOKEN_MINT_COST = 10_000_000;
+        const interval = setInterval(() => {
+            const activeMints = claimedFloors.reduce((total, entry) => {
+                const mintCount = countInfrastructureByType(entry, 'token-mint');
+                const quarantineCount = countInfrastructureByType(entry, 'quarantine-node');
+                if (mintCount <= 0 || quarantineCount <= 0) return total;
+                return total + mintCount;
+            }, 0);
+
+            if (activeMints <= 0) return;
+
+            const affordableMints = Math.min(activeMints, Math.floor(computeUnits / TOKEN_MINT_COST));
+            if (affordableMints <= 0) return;
+
+            const spendAmount = affordableMints * TOKEN_MINT_COST;
+            if (!spendComputeUnits(spendAmount)) return;
+
+            addProtocolTokens(affordableMints, `TOKEN MINT REFINEMENT x${affordableMints}`);
+            recordOpsLedgerEvent({
+                type: 'income',
+                message: `Token mint output: +${affordableMints} TOK for ${formatComputeUnits(spendAmount)} CU.`,
+                amountCU: -spendAmount,
+                amountTokens: affordableMints
+            });
+        }, 15000);
+
+        return () => clearInterval(interval);
+    }, [addProtocolTokens, claimedFloors, computeUnits, recordOpsLedgerEvent, spendComputeUnits]);
 
     useEffect(() => {
         if (claimedFloors.length === 0) return;
@@ -1818,9 +2315,74 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, [claimedFloors, getOSModuleLevel, updateFloorMap]);
 
     useEffect(() => {
+        if (claimedFloors.length === 0) return;
+
+        const interval = setInterval(() => {
+            setBreaches(prev => {
+                let changed = false;
+                const next = prev.map(breach => {
+                    if (breach.hp <= 0 || breach.hp >= breach.maxHp) return breach;
+                    const dockCount = getInfrastructureCount(breach.floor, 'repair-dock');
+                    if (dockCount <= 0) return breach;
+
+                    const healAmount = dockCount * 4;
+                    const nextHp = Math.min(breach.maxHp, breach.hp + healAmount);
+                    if (nextHp === breach.hp) return breach;
+
+                    changed = true;
+                    return {
+                        ...breach,
+                        hp: nextHp,
+                        logs: nextHp === breach.maxHp
+                            ? [...breach.logs.slice(-4), '[REPAIR-DOCK RESTORED FULL INTEGRITY]']
+                            : [...breach.logs.slice(-4), `[REPAIR-DOCK RESTORED ${healAmount} HP]`]
+                    };
+                });
+
+                return changed ? next : prev;
+            });
+        }, 4000);
+
+        return () => clearInterval(interval);
+    }, [claimedFloors, getInfrastructureCount]);
+
+    useEffect(() => {
+        if (claimedFloors.length === 0) return;
+
+        const interval = setInterval(() => {
+            const quarantinePower = claimedFloors.reduce((total, entry) => {
+                const nodeCount = countInfrastructureByType(entry, 'quarantine-node');
+                if (nodeCount <= 0) return total;
+                return total + (nodeCount * (0.8 + (entry.floor * 0.05)));
+            }, 0);
+
+            if (quarantinePower > 0) {
+                stabilizeClutter(quarantinePower);
+            }
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, [claimedFloors, stabilizeClutter]);
+
+    useEffect(() => {
         const interval = setInterval(() => {
             const deepScanLevel = getOSModuleLevel('deep-scan-bus');
-            breaches.forEach(breach => {
+            const currentBreaches = breachesRef.current;
+            const totalBreaches = currentBreaches.length;
+            if (totalBreaches === 0) return;
+
+            const batchSize = totalBreaches <= 160 ? totalBreaches : Math.ceil(totalBreaches / 4);
+            const batchStart = uplinkCursorRef.current % totalBreaches;
+            const batchEnd = batchStart + batchSize;
+            const shouldProcessIndex = (index: number) => (
+                batchEnd <= totalBreaches
+                    ? index >= batchStart && index < batchEnd
+                    : index >= batchStart || index < (batchEnd % totalBreaches)
+            );
+            uplinkCursorRef.current = (batchStart + batchSize) % totalBreaches;
+
+            currentBreaches.forEach((breach, index) => {
+                if (!shouldProcessIndex(index) && breach.id !== activeBreachId) return;
                 if (breach.isPaused || breach.hp <= 0 || breach.spec === 'miner') return;
 
                 const uplinkCount = getInfrastructureCount(breach.floor, 'relay-uplink');
@@ -1833,7 +2395,7 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 const extraMoves = Math.min(4, uplinkCount + deepScanLevel);
 
                 for (let step = 0; step < extraMoves; step++) {
-                    const liveBreach = breaches.find(item => item.id === breach.id) ?? breach;
+                    const liveBreach = breachesRef.current.find(item => item.id === breach.id) ?? breach;
                     const livePos = liveBreach.playerPos;
                     let nextMove: { dx: number; dy: number } | null = null;
 
@@ -1904,22 +2466,7 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }, Math.max(75, Math.floor(getTickDuration() * Math.max(0.3, 0.55 - (getOSModuleLevel('deep-scan-bus') * 0.05)))));
 
         return () => clearInterval(interval);
-    }, [activeBreachId, breaches, getFloorProgress, getInfrastructureCount, getMetaMapForFloor, getOSModuleLevel, getTickDuration, movePlayer]);
-
-    useEffect(() => {
-        const runExplorerAutoAdvance = () => {
-            const readyExplorers = breachesRef.current
-                .filter(breach => breach.spec === 'explorer' && !breach.isPaused && breach.hp > 0)
-                .filter(breach => getFloorProgress(breach.floor).locksOpened.length >= 3)
-                .map(breach => breach.id);
-
-            [...new Set(readyExplorers)].forEach(id => nextFloor(id));
-        };
-
-        runExplorerAutoAdvance();
-        const interval = setInterval(runExplorerAutoAdvance, 900);
-        return () => clearInterval(interval);
-    }, [getFloorProgress, nextFloor]);
+    }, [activeBreachId, getFloorProgress, getInfrastructureCount, getMetaMapForFloor, getOSModuleLevel, getTickDuration, movePlayer]);
 
     useEffect(() => {
         const managerAgents = codexAgents.filter(agent => agent.strategy === 'manager');
@@ -1935,80 +2482,133 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 explorer: 'EXPLORATION'
             };
 
-            const missingFolderNames = Object.values(folderTargets).filter(folderName =>
-                !breachFolders.some(folder => folder.name.toLowerCase() === folderName.toLowerCase())
-            );
+            managerAgents.forEach(manager => {
+                const scopedDepartmentId = manager.assignedDepartmentId;
+                const scopedFolderIds = scopedDepartmentId
+                    ? new Set(
+                        breachFolders
+                            .filter(folder => departmentAssignments[folder.id] === scopedDepartmentId)
+                            .map(folder => folder.id)
+                    )
+                    : null;
 
-            const assignmentTargets = breachesRef.current
-                .filter(breach => breach.isMinimized)
-                .map(breach => {
-                    const targetFolderName = folderTargets[breach.spec];
-                    const targetFolder = breachFolders.find(folder => folder.name.toLowerCase() === targetFolderName.toLowerCase());
-                    return { breach, targetFolder };
-                })
-                .filter(({ breach, targetFolder }) => targetFolder && folderAssignments[breach.id] !== targetFolder.id);
-
-            const departmentTargets = breachesRef.current
-                .filter(breach => breach.isMinimized)
-                .map(breach => {
+                const scopedBreaches = breachesRef.current.filter(breach => {
+                    if (!breach.isMinimized) return false;
+                    if (!scopedFolderIds) return true;
                     const folderId = folderAssignments[breach.id];
-                    const departmentId = folderId ? departmentAssignments[folderId] : undefined;
-                    const department = departmentId ? breachDepartments.find(item => item.id === departmentId) : undefined;
-                    return { breach, department };
-                })
-                .filter(({ department }) => !!department);
+                    return !!folderId && scopedFolderIds.has(folderId);
+                });
 
-            const respecTargets = departmentTargets.filter(({ breach, department }) =>
-                department &&
-                department.defaultSpec !== 'mixed' &&
-                breach.spec !== department.defaultSpec
-            );
+                const missingFolderNames = [...new Set(
+                    scopedBreaches
+                        .map(breach => folderTargets[breach.spec])
+                        .filter(folderName =>
+                            !!folderName && !breachFolders.some(folder => folder.name.toLowerCase() === folderName.toLowerCase())
+                        )
+                )];
 
-            const readyBreaches = breachesRef.current
-                .filter(breach => getFloorProgress(breach.floor).locksOpened.length >= 3);
+                const assignmentTargets = scopedBreaches
+                    .map(breach => {
+                        const targetFolderName = folderTargets[breach.spec];
+                        const targetFolder = breachFolders.find(folder => folder.name.toLowerCase() === targetFolderName.toLowerCase());
+                        return { breach, targetFolder };
+                    })
+                    .filter(({ breach, targetFolder }) => targetFolder && folderAssignments[breach.id] !== targetFolder.id);
 
-            const autoAdvanceTargets = readyBreaches;
+                const departmentTargets = scopedBreaches
+                    .map(breach => {
+                        const department = getAssignedDepartmentForBreach(
+                            breach.id,
+                            breachFolders,
+                            breachDepartments,
+                            folderAssignments,
+                            departmentAssignments
+                        );
+                        return { breach, department };
+                    })
+                    .filter(({ department }) => !!department);
 
-            const rawCycleCost =
-                (missingFolderNames.length > 0 ? 6 : 0) +
-                (assignmentTargets.length * 2) +
-                (respecTargets.length * 3) +
-                (autoAdvanceTargets.length * 10);
-            const cycleCost = Math.max(1, Math.ceil(rawCycleCost * Math.max(0.35, 1 - (schedulerLevel * 0.15))));
+                const respecTargets = departmentTargets.filter(({ breach, department }) =>
+                    department &&
+                    department.defaultSpec !== 'mixed' &&
+                    breach.spec !== department.defaultSpec
+                );
 
-            if (cycleCost <= 0) return;
+                const movementTargets: Array<{ breach: BreachInstance; type: 'transfer' | 'advance'; targetFloor?: number }> = [];
+                departmentTargets.forEach(({ breach, department }) => {
+                    if (!department) return;
 
-            const payingManager = managerAgents.find(agent => spendAgentFunds(agent.id, cycleCost));
-            if (!payingManager) return;
+                    const range = normalizeDepartmentRange(department.targetFloorMin, department.targetFloorMax);
+                    const floorComplete = getFloorProgress(breach.floor).locksOpened.length >= 3;
 
-            missingFolderNames.forEach(folderName => {
-                createBreachFolder(folderName);
+                    if (breach.floor > range.max && floorMaps[range.max]) {
+                        movementTargets.push({ breach, type: 'transfer', targetFloor: range.max });
+                        return;
+                    }
+
+                    if (breach.floor < range.min && floorMaps[range.min]) {
+                        movementTargets.push({ breach, type: 'transfer', targetFloor: range.min });
+                        return;
+                    }
+
+                    if (breach.floor < range.min && floorComplete) {
+                        movementTargets.push({ breach, type: 'advance' });
+                        return;
+                    }
+
+                    if (department.allocationMode === 'expansion' && floorComplete && breach.floor < range.max) {
+                        movementTargets.push({ breach, type: 'advance' });
+                    }
+                });
+
+                const rawCycleCost =
+                    (missingFolderNames.length > 0 ? 6 : 0) +
+                    (assignmentTargets.length * 2) +
+                    (respecTargets.length * 3) +
+                    (movementTargets.length * 8);
+                const cycleCost = Math.max(1, Math.ceil(rawCycleCost * Math.max(0.35, 1 - (schedulerLevel * 0.15))));
+
+                if (rawCycleCost <= 0 || !spendAgentFunds(manager.id, cycleCost)) return;
+
+                missingFolderNames.forEach(folderName => {
+                    createBreachFolder(folderName);
+                });
+
+                assignmentTargets.forEach(({ breach, targetFolder }) => {
+                    if (targetFolder) {
+                        assignBreachToFolder(breach.id, targetFolder.id);
+                    }
+                });
+
+                respecTargets.forEach(({ breach, department }) => {
+                    if (department && department.defaultSpec !== 'mixed') {
+                        setBreachSpec(breach.id, department.defaultSpec);
+                    }
+                });
+
+                movementTargets.forEach(target => {
+                    if (target.type === 'transfer' && target.targetFloor) {
+                        moveBreachToFloor(target.breach.id, target.targetFloor);
+                    } else if (target.type === 'advance') {
+                        nextFloor(target.breach.id);
+                    }
+                });
+
+                const scopeName = scopedDepartmentId
+                    ? breachDepartments.find(department => department.id === scopedDepartmentId)?.name
+                    : null;
+                triggerAlert(
+                    'AGENT ACTION COMPLETE',
+                    `${manager.nickname?.trim() ? `${manager.nickname} // ${manager.name}` : manager.name} coordinated ${assignmentTargets.length + respecTargets.length + movementTargets.length + missingFolderNames.length} breach action${assignmentTargets.length + respecTargets.length + movementTargets.length + missingFolderNames.length === 1 ? '' : 's'}${scopeName ? ` for ${scopeName}` : ''}.`
+                );
             });
-
-            assignmentTargets.forEach(({ breach, targetFolder }) => {
-                if (targetFolder) {
-                    assignBreachToFolder(breach.id, targetFolder.id);
-                }
-            });
-
-            respecTargets.forEach(({ breach, department }) => {
-                if (department && department.defaultSpec !== 'mixed') {
-                    setBreachSpec(breach.id, department.defaultSpec);
-                }
-            });
-
-            autoAdvanceTargets.forEach(breach => nextFloor(breach.id));
-            triggerAlert(
-                'AGENT ACTION COMPLETE',
-                `${payingManager.nickname?.trim() ? `${payingManager.nickname} // ${payingManager.name}` : payingManager.name} coordinated ${assignmentTargets.length + respecTargets.length + autoAdvanceTargets.length + missingFolderNames.length} breach action${assignmentTargets.length + respecTargets.length + autoAdvanceTargets.length + missingFolderNames.length === 1 ? '' : 's'}.`
-            );
         };
 
         runManagerCycle();
         const interval = setInterval(runManagerCycle, Math.max(450, 1200 - (getOSModuleLevel('scheduler-kernel') * 150)));
 
         return () => clearInterval(interval);
-    }, [assignBreachToFolder, breachDepartments, breachFolders, codexAgents, createBreachFolder, departmentAssignments, folderAssignments, getFloorProgress, getOSModuleLevel, nextFloor, setBreachSpec, spendAgentFunds]);
+    }, [assignBreachToFolder, breachDepartments, breachFolders, codexAgents, createBreachFolder, departmentAssignments, floorMaps, folderAssignments, getFloorProgress, getOSModuleLevel, moveBreachToFloor, nextFloor, setBreachSpec, spendAgentFunds]);
 
     useEffect(() => {
         const builderAgents = codexAgents.filter(agent => agent.strategy === 'builder');
@@ -2021,17 +2621,54 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const miningCount = countInfrastructureByType(claimed, 'mining-rig');
             const uplinkCount = countInfrastructureByType(claimed, 'relay-uplink');
             const scannerCount = countInfrastructureByType(claimed, 'scanner-tower');
+            const dockCount = countInfrastructureByType(claimed, 'repair-dock');
+            const beaconCount = countInfrastructureByType(claimed, 'dispatch-beacon');
+            const quarantineCount = countInfrastructureByType(claimed, 'quarantine-node');
+            const mintCount = countInfrastructureByType(claimed, 'token-mint');
 
             if (miningCount === 0) return 'mining-rig';
+            if (dockCount === 0) return 'repair-dock';
+            if (beaconCount === 0) return 'dispatch-beacon';
             if (uplinkCount === 0) return 'relay-uplink';
             if (scannerCount === 0) return 'scanner-tower';
+            if (quarantineCount === 0) return 'quarantine-node';
+            if (mintCount === 0 && quarantineCount > 0 && floor >= 6) return 'token-mint';
             if (miningCount <= uplinkCount + scannerCount) return 'mining-rig';
+            if (dockCount < 2 && floor >= 2) return 'repair-dock';
+            if (quarantineCount < 2 && floor >= 3) return 'quarantine-node';
             if (scannerCount < 2) return 'scanner-tower';
-            return 'relay-uplink';
+            if (beaconCount < 2 && floor >= 4) return 'dispatch-beacon';
+            if (mintCount < 2 && quarantineCount > 0 && floor >= 10) return 'token-mint';
+            return uplinkCount <= scannerCount ? 'relay-uplink' : 'scanner-tower';
         };
 
         const runBuilderCycle = () => {
             const logisticsLevel = getOSModuleLevel('logistics-mesh');
+            const departmentPresence = breachDepartments.map(department => {
+                const range = normalizeDepartmentRange(department.targetFloorMin, department.targetFloorMax);
+                const floors = [...new Set(
+                    breachesRef.current
+                        .filter(breach => {
+                            const assignedDepartment = getAssignedDepartmentForBreach(
+                                breach.id,
+                                breachFolders,
+                                breachDepartments,
+                                folderAssignments,
+                                departmentAssignments
+                            );
+                            return assignedDepartment?.id === department.id;
+                        })
+                        .map(breach => breach.floor)
+                        .filter(floor => floor >= range.min && floor <= range.max)
+                )];
+
+                return {
+                    department,
+                    range,
+                    floors
+                };
+            }).filter(entry => entry.floors.length > 0);
+
             for (const agent of builderAgents) {
                 const canCoverOpCost = (amount: number) =>
                     agent.budget >= amount || (agent.maxBudget === 0 && computeUnits >= amount);
@@ -2042,44 +2679,88 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 const buildOpCost = Math.max(4, 12 - (logisticsLevel * 2));
 
                 const claimTarget = canCoverOpCost(claimOpCost)
-                    ? [...availableFloors]
-                        .sort((a, b) => a - b)
-                        .find(floor => {
-                            if (isFloorClaimed(floor)) return false;
-                            const progress = getFloorProgress(floor);
-                            if (progress.locksOpened.length < 3) return false;
-                            const cost = getClaimCost(floor);
-                            return availableComputeAfterOp(claimOpCost) >= cost.cu && protocolTokens >= cost.tokens;
-                        })
+                    ? departmentPresence
+                        .flatMap(entry => (
+                            entry.floors
+                                .filter(floor => !isFloorClaimed(floor) && getFloorProgress(floor).locksOpened.length >= 3)
+                                .map(floor => ({
+                                    department: entry.department,
+                                    floor,
+                                    cost: getClaimCost(floor),
+                                    priority: entry.department.allocationMode === 'expansion' ? 0 : entry.department.allocationMode === 'balanced' ? 1 : 3
+                                }))
+                        ))
+                        .filter(entry => availableComputeAfterOp(claimOpCost) >= entry.cost.cu && protocolTokens >= entry.cost.tokens)
+                        .sort((a, b) => {
+                            if (a.priority !== b.priority) return a.priority - b.priority;
+                            return b.floor - a.floor;
+                        })[0]
                     : undefined;
 
-                if (claimTarget !== undefined) {
+                const buildTarget = canCoverOpCost(buildOpCost)
+                    ? departmentPresence
+                        .flatMap(entry => (
+                            claimedFloors
+                                .filter(claimedFloor =>
+                                    claimedFloor.floor >= entry.range.min &&
+                                    claimedFloor.floor <= entry.range.max &&
+                                    entry.floors.includes(claimedFloor.floor)
+                                )
+                                .map(claimedFloor => {
+                                    const type = pickBuildType(claimedFloor.floor);
+                                    if (!type) return null;
+                                    return {
+                                        department: entry.department,
+                                        floor: claimedFloor.floor,
+                                        type,
+                                        cost: getInfrastructureCost(claimedFloor.floor, type),
+                                        priority: entry.department.allocationMode === 'infrastructure' ? 0 : entry.department.allocationMode === 'balanced' ? 1 : 2
+                                    };
+                                })
+                        ))
+                        .filter((entry): entry is {
+                            department: BreachDepartment;
+                            floor: number;
+                            type: FloorInfrastructureType;
+                            cost: { cu: number; tokens: number };
+                            priority: number;
+                        } => !!entry)
+                        .filter(entry => availableComputeAfterOp(buildOpCost) >= entry.cost.cu && protocolTokens >= entry.cost.tokens)
+                        .sort((a, b) => {
+                            if (a.priority !== b.priority) return a.priority - b.priority;
+                            return a.department.allocationMode === 'infrastructure'
+                                ? a.floor - b.floor
+                                : b.floor - a.floor;
+                        })[0]
+                    : undefined;
+
+                const preferredAction = claimTarget && buildTarget
+                    ? claimTarget.priority <= buildTarget.priority
+                        ? 'claim'
+                        : 'build'
+                    : claimTarget
+                        ? 'claim'
+                        : buildTarget
+                            ? 'build'
+                            : null;
+
+                if (preferredAction === 'claim' && claimTarget) {
                     if (!spendAgentFunds(agent.id, claimOpCost)) continue;
-                    if (claimFloor(claimTarget)) {
+                    if (claimFloor(claimTarget.floor)) {
                         triggerAlert(
                             'AGENT ACTION COMPLETE',
-                            `${agent.nickname?.trim() ? `${agent.nickname} // ${agent.name}` : agent.name} claimed floor ${claimTarget}.`
+                            `${agent.nickname?.trim() ? `${agent.nickname} // ${agent.name}` : agent.name} claimed floor ${claimTarget.floor} for ${claimTarget.department.name}.`
                         );
                         break;
                     }
                 }
 
-                const buildTarget = canCoverOpCost(buildOpCost)
-                    ? [...claimedFloors]
-                        .sort((a, b) => a.floor - b.floor)
-                        .map(entry => {
-                            const type = pickBuildType(entry.floor);
-                            return type ? { floor: entry.floor, type, cost: getInfrastructureCost(entry.floor, type) } : null;
-                        })
-                        .find(entry => entry && availableComputeAfterOp(buildOpCost) >= entry.cost.cu && protocolTokens >= entry.cost.tokens) ?? null
-                    : null;
-
-                if (buildTarget) {
+                if (preferredAction === 'build' && buildTarget) {
                     if (!spendAgentFunds(agent.id, buildOpCost)) continue;
                     if (buildInfrastructure(buildTarget.floor, buildTarget.type)) {
                         triggerAlert(
                             'AGENT ACTION COMPLETE',
-                            `${agent.nickname?.trim() ? `${agent.nickname} // ${agent.name}` : agent.name} built ${buildTarget.type.toUpperCase()} on floor ${buildTarget.floor}.`
+                            `${agent.nickname?.trim() ? `${agent.nickname} // ${agent.name}` : agent.name} built ${buildTarget.type.toUpperCase()} on floor ${buildTarget.floor} for ${buildTarget.department.name}.`
                         );
                         break;
                     }
@@ -2091,14 +2772,14 @@ export const DungeonProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const interval = setInterval(runBuilderCycle, Math.max(900, 2200 - (getOSModuleLevel('logistics-mesh') * 220)));
 
         return () => clearInterval(interval);
-    }, [availableFloors, buildInfrastructure, claimFloor, claimedFloors, codexAgents, computeUnits, getClaimCost, getClaimedFloor, getFloorProgress, getInfrastructureCost, getOSModuleLevel, isFloorClaimed, protocolTokens, spendAgentFunds]);
+    }, [breachDepartments, breachFolders, buildInfrastructure, claimFloor, claimedFloors, codexAgents, computeUnits, departmentAssignments, folderAssignments, getClaimCost, getClaimedFloor, getFloorProgress, getInfrastructureCost, getOSModuleLevel, isFloorClaimed, protocolTokens, spendAgentFunds]);
 
     return (
         <DungeonContext.Provider value={{
             breaches, metaMap, getMetaMapForFloor, availableFloors, claimedFloors, breachDepartments, breachFolders, departmentAssignments, folderAssignments, activeBreachId, currentFloor, keysFound, locksOpened, getFloorProgress, getClaimCost, getInfrastructureCost, getClaimedFloor, isFloorClaimed, roomMarkers,
             setActiveBreachId,
             movePlayer, togglePause, toggleMinimize, togglePin, terminateBreach,
-            initNewBreach, mascotSay, restartBreach, setBreachSpec, toggleMarker, nextFloor, claimFloor, buildInfrastructure,
+            initNewBreach, initBreachesBulk, mascotSay, restartBreach, setBreachSpec, toggleMarker, nextFloor, moveBreachToFloor, claimFloor, buildInfrastructure,
             createBreachFolder, renameBreachFolder, deleteBreachFolder, assignBreachToFolder,
             createBreachDepartment, renameBreachDepartment, deleteBreachDepartment, assignFolderToDepartment, updateDepartmentSettings
         }}>{children}</DungeonContext.Provider>

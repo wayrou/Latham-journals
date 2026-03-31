@@ -6,17 +6,26 @@ import { useDraggable } from '../hooks/useDraggable';
 import { useResizable } from '../hooks/useResizable';
 import { formatComputeUnits } from '../utils/numberFormat';
 
-const BUILDABLE_TYPES: FloorInfrastructureType[] = ['mining-rig', 'relay-uplink', 'scanner-tower'];
+const BUILDABLE_TYPES: FloorInfrastructureType[] = [
+    'mining-rig',
+    'repair-dock',
+    'dispatch-beacon',
+    'relay-uplink',
+    'scanner-tower',
+    'quarantine-node',
+    'token-mint'
+];
 
 const labelForType = (type: FloorInfrastructureType) => type.toUpperCase();
 
 const descriptionForType: Record<FloorInfrastructureType, string> = {
     'mining-rig': 'Passive CU output every few seconds.',
+    'repair-dock': 'Turns the floor into a recovery hub and heals crawlers stationed there.',
+    'dispatch-beacon': 'Redeploys and restarts land on this floor through the beacon.',
     'relay-uplink': 'Gives auto-crawlers extra movement passes on this floor.',
     'scanner-tower': 'Reveals undiscovered rooms on this floor over time.',
-    'repair-dock': '',
-    'quarantine-node': '',
-    'dispatch-beacon': ''
+    'quarantine-node': 'Passively suppresses global clutter while this floor is held.',
+    'token-mint': 'Converts 10m CU into 1 token slowly, but only if this floor has a quarantine node.'
 };
 
 const PinnedBuild: React.FC = () => {
@@ -181,8 +190,8 @@ const PinnedBuild: React.FC = () => {
                                                 width: '100%',
                                                 padding: '6px 8px',
                                                 backgroundColor: 'transparent',
-                                                color: type === 'mining-rig' ? 'var(--color-primary)' : 'var(--color-primary-dim)',
-                                                border: `1px solid ${type === 'mining-rig' ? 'var(--color-primary)' : 'var(--color-primary-dim)'}`,
+                                                color: 'var(--color-primary)',
+                                                border: '1px solid var(--color-primary)',
                                                 cursor: 'pointer',
                                                 fontSize: '0.72rem'
                                             }}

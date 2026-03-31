@@ -10,6 +10,29 @@ import { getDefragCost } from '../utils/degradation';
 const AGENT_STRATEGIES = ['responsible', 'brave', 'disabled', 'parallel', 'defrag', 'scrapper', 'mechanic', 'manager', 'builder'] as const;
 type AgentStrategy = typeof AGENT_STRATEGIES[number];
 
+const parseShorthandAmount = (value?: string) => {
+    if (!value) return Number.NaN;
+
+    const normalized = value.trim().toLowerCase();
+    const match = normalized.match(/^(\d+(?:\.\d+)?)([kmbt])?$/);
+    if (!match) return Number.NaN;
+
+    const base = Number(match[1]);
+    if (!Number.isFinite(base)) return Number.NaN;
+
+    const multiplier = match[2] === 'k'
+        ? 1_000
+        : match[2] === 'm'
+            ? 1_000_000
+            : match[2] === 'b'
+                ? 1_000_000_000
+                : match[2] === 't'
+                    ? 1_000_000_000_000
+                    : 1;
+
+    return base * multiplier;
+};
+
 const HELP_TEXT =
     `SYSTEM COMMANDS:\n` +
     `- help                          : Show this message\n` +
@@ -46,6 +69,8 @@ const HELP_TEXT =
     `- agents                        : List active agents\n` +
     `- agents --pin                  : Toggle agent status window\n` +
     `- agents set [N] [mode]         : Change an agent behavior\n` +
+    `- agents assign [N] [dept]      : Assign a manager to a department\n` +
+    `- agents unassign [N]           : Return a manager to global control\n` +
     `- wallets                       : View agent wallet balances\n` +
     `- wallets --pin                 : Toggle agent wallet trackers\n` +
     `- wallets refill [N] [A]        : Transfer CU to agent wallet\n` +
@@ -79,11 +104,11 @@ export const useTerminal = () => {
         terminalHistory, setTerminalHistory, terminalInput, setTerminalInput,
         setDefaultSpec, scrapBrickedNode, repairBrickedNode, activeBrickedNode,
         getCipherProgress, attemptCipherUnlock,
-        setAgentStrategy, setAgentBudget, setAgentRefillRate, refillAgent,
+        setAgentStrategy, assignAgentDepartment, setAgentBudget, setAgentRefillRate, refillAgent,
         osModules, getOSModuleCost, unlockOSModule, getMaxClaimCount,
         notificationsEnabled, setNotificationsEnabled, dismissAlert
     } = useGameState();
-    const { metaMap, breaches, currentFloor, setBreachSpec, availableFloors, claimFloor, claimedFloors, getClaimCost, getFloorProgress, getInfrastructureCost, getClaimedFloor, buildInfrastructure, isFloorClaimed } = useDungeon();
+    const { metaMap, breaches, currentFloor, setBreachSpec, availableFloors, claimFloor, claimedFloors, getClaimCost, getFloorProgress, getInfrastructureCost, getClaimedFloor, buildInfrastructure, isFloorClaimed, breachDepartments } = useDungeon();
     const { playSound } = useSound();
 
     const endRef = useRef<HTMLDivElement>(null);
@@ -136,6 +161,14 @@ export const useTerminal = () => {
 
             setAgentStrategy(agent.id, strategy);
             print(`BEHAVIOR FOR ${agent.name} SET TO ${strategy.toUpperCase()}.`, 'system');
+        };
+
+        const findDepartment = (identifier?: string) => {
+            if (!identifier) return undefined;
+            return breachDepartments.find(department =>
+                department.id === identifier ||
+                department.name.toLowerCase() === identifier.toLowerCase()
+            );
         };
 
         switch (command) {
@@ -427,22 +460,30 @@ export const useTerminal = () => {
                     }
 
                     const rigCost = getInfrastructureCost(floor, 'mining-rig');
+                    const dockCost = getInfrastructureCost(floor, 'repair-dock');
+                    const beaconCost = getInfrastructureCost(floor, 'dispatch-beacon');
                     const relayCost = getInfrastructureCost(floor, 'relay-uplink');
                     const scannerCost = getInfrastructureCost(floor, 'scanner-tower');
+                    const quarantineCost = getInfrastructureCost(floor, 'quarantine-node');
+                    const mintCost = getInfrastructureCost(floor, 'token-mint');
                     print(`--- FLOOR ${floor} INFRASTRUCTURE ---`);
                     print(`SLOTS USED: ${claimed.infrastructure.length}/4`);
                     print(`ACTIVE: ${claimed.infrastructure.length ? claimed.infrastructure.map(item => `${item.type}@${item.roomX},${item.roomY}`).join(', ') : 'NONE'}`);
                     print(`mining-rig    : ${formatComputeUnits(rigCost.cu)} CU / ${rigCost.tokens} TOK | passive CU output`);
+                    print(`repair-dock   : ${formatComputeUnits(dockCost.cu)} CU / ${dockCost.tokens} TOK | restart hub + floor healing`);
+                    print(`dispatch-beacon: ${formatComputeUnits(beaconCost.cu)} CU / ${beaconCost.tokens} TOK | redeploy / restart landing point`);
                     print(`relay-uplink  : ${formatComputeUnits(relayCost.cu)} CU / ${relayCost.tokens} TOK | extra auto-crawl movement`);
                     print(`scanner-tower : ${formatComputeUnits(scannerCost.cu)} CU / ${scannerCost.tokens} TOK | reveals rooms over time`);
+                    print(`quarantine-node: ${formatComputeUnits(quarantineCost.cu)} CU / ${quarantineCost.tokens} TOK | passive clutter suppression`);
+                    print(`token-mint    : ${formatComputeUnits(mintCost.cu)} CU / ${mintCost.tokens} TOK | 10m CU -> 1 TOK, requires quarantine`);
                     break;
                 }
 
                 if (sub === 'floor') {
                     const floor = parseInt(args[2] || '', 10);
-                    const type = (args[3] || '').toLowerCase() as 'mining-rig' | 'relay-uplink' | 'scanner-tower';
-                    if (Number.isNaN(floor) || floor < 1 || !['mining-rig', 'relay-uplink', 'scanner-tower'].includes(type)) {
-                        print('Usage: build floor [N] [mining-rig|relay-uplink|scanner-tower]', 'error');
+                    const type = (args[3] || '').toLowerCase() as 'mining-rig' | 'repair-dock' | 'dispatch-beacon' | 'relay-uplink' | 'scanner-tower' | 'quarantine-node' | 'token-mint';
+                    if (Number.isNaN(floor) || floor < 1 || !['mining-rig', 'repair-dock', 'dispatch-beacon', 'relay-uplink', 'scanner-tower', 'quarantine-node', 'token-mint'].includes(type)) {
+                        print('Usage: build floor [N] [mining-rig|repair-dock|dispatch-beacon|relay-uplink|scanner-tower|quarantine-node|token-mint]', 'error');
                         break;
                     }
 
@@ -462,7 +503,7 @@ export const useTerminal = () => {
                     break;
                 }
 
-                print('Usage: build --pin | build floor [N] [mining-rig|relay-uplink|scanner-tower] | build list [N]', 'error');
+                print('Usage: build --pin | build floor [N] [mining-rig|repair-dock|dispatch-beacon|relay-uplink|scanner-tower|quarantine-node|token-mint] | build list [N]', 'error');
                 break;
             }
 
@@ -736,11 +777,34 @@ export const useTerminal = () => {
                     print('AGENT WINDOW TOGGLED.', 'system');
                 } else if (sub === 'set' || sub === 'behavior') {
                     setAgentBehavior(args[2], args[3]);
+                } else if (sub === 'assign') {
+                    const agent = findAgent(args[2]);
+                    const department = findDepartment(args.slice(3).join(' '));
+                    if (!agent || agent.strategy !== 'manager' || !department) {
+                        print('Usage: agents assign [manager_name] [department_name]', 'error');
+                    } else {
+                        assignAgentDepartment(agent.id, department.id);
+                        print(`${agent.nickname?.trim() ? `${agent.nickname} // ${agent.name}` : agent.name} ASSIGNED TO ${department.name.toUpperCase()}.`, 'system');
+                    }
+                } else if (sub === 'unassign') {
+                    const agent = findAgent(args[2]);
+                    if (!agent || agent.strategy !== 'manager') {
+                        print('Usage: agents unassign [manager_name]', 'error');
+                    } else {
+                        assignAgentDepartment(agent.id);
+                        print(`${agent.nickname?.trim() ? `${agent.nickname} // ${agent.name}` : agent.name} RETURNED TO GLOBAL COORDINATION.`, 'system');
+                    }
                 } else {
                     print(`ACTIVE AGENTS: ${codexAgents.length}`);
                     codexAgents.forEach(agent => {
                         const agentLabel = agent.nickname ? `${agent.nickname} // ${agent.name}` : agent.name;
-                        print(`- ${agentLabel}: ${agent.strategy} (${agent.lastAction || 'IDLE'})`);
+                        const department = agent.assignedDepartmentId
+                            ? breachDepartments.find(entry => entry.id === agent.assignedDepartmentId)
+                            : undefined;
+                        const scope = agent.strategy === 'manager'
+                            ? ` -> ${department?.name || 'GLOBAL'}`
+                            : '';
+                        print(`- ${agentLabel}: ${agent.strategy}${scope} (${agent.lastAction || 'IDLE'})`);
                     });
                 }
                 break;
@@ -778,36 +842,54 @@ export const useTerminal = () => {
                 } else if (sub === 'set-budget' || (sub === 'agent' && sub2 === 'set') || (sub === 'set' && sub2 === 'budget')) {
                     const isThreePart = (sub === 'agent' && sub2 === 'set') || (sub === 'set' && sub2 === 'budget');
                     const name = isThreePart ? args[3] : args[2];
-                    const amount = parseFloat(isThreePart ? args[4] : args[3]);
+                    const amount = parseShorthandAmount(isThreePart ? args[4] : args[3]);
                     const agent = findAgent(name);
 
                     if (!agent || isNaN(amount) || amount < 0) {
                         const correctSub = sub === 'agent' ? 'agent set' : (sub === 'set' ? 'set budget' : 'set-budget');
-                        print(`Usage: wallets ${correctSub} [agent_name] [amount]`, 'error');
+                        print(`Usage: wallets ${correctSub} [agent_name] [amount|1k|1m]`, 'error');
                     } else {
                         setAgentBudget(agent.id, amount);
-                        print(`BUDGET FOR ${agent.name} SET TO ${amount} CU.`, 'system');
+                        print(`BUDGET FOR ${agent.name} SET TO ${formatComputeUnits(amount)} CU.`, 'system');
                     }
                 } else if (sub === 'set-refill') {
                     const agent = findAgent(args[2]);
-                    const amount = parseFloat(args[3]);
+                    const amount = parseShorthandAmount(args[3]);
                     if (!agent || isNaN(amount) || amount < 0) {
-                        print('Usage: wallets set-refill [agent_name] [amount]', 'error');
+                        print('Usage: wallets set-refill [agent_name] [amount|1k|1m]', 'error');
                     } else {
                         setAgentRefillRate(agent.id, amount);
-                        print(`REFILL RATE FOR ${agent.name} SET TO ${amount} CU/tick.`, 'system');
+                        print(`REFILL RATE FOR ${agent.name} SET TO ${formatComputeUnits(amount)} CU/tick.`, 'system');
                     }
                 } else if (sub === 'refill') {
-                    const agent = findAgent(args[2]);
-                    const amount = parseFloat(args[3]);
-                    if (!agent || isNaN(amount) || amount <= 0) {
-                        print('Usage: wallets refill [agent_name] [amount]', 'error');
-                    } else {
-                        const transferred = refillAgent(agent.id, amount);
-                        if (transferred > 0) {
-                            print(`TRANSFERRED ${transferred} CU TO ${agent.name}.`, 'system');
+                    const agentTarget = args[2];
+                    const amount = parseShorthandAmount(args[3]);
+                    if (agentTarget?.toLowerCase() === 'all') {
+                        if (isNaN(amount) || amount <= 0) {
+                            print('Usage: wallets refill all [amount|10m]', 'error');
                         } else {
-                            print(`INSUFFICIENT FUNDS OR AGENT AT CAPACITY. (Balance: ${formatComputeUnits(computeUnits)})`, 'error');
+                            let totalTransferred = 0;
+                            codexAgents.forEach(agent => {
+                                totalTransferred += refillAgent(agent.id, amount);
+                            });
+
+                            if (totalTransferred > 0) {
+                                print(`TRANSFERRED ${formatComputeUnits(totalTransferred)} CU ACROSS ${codexAgents.length} AGENT WALLET${codexAgents.length === 1 ? '' : 'S'}.`, 'system');
+                            } else {
+                                print(`NO AGENT WALLETS COULD BE REFILLED. (Balance: ${formatComputeUnits(computeUnits)})`, 'error');
+                            }
+                        }
+                    } else {
+                        const agent = findAgent(agentTarget);
+                        if (!agent || isNaN(amount) || amount <= 0) {
+                            print('Usage: wallets refill [agent_name|all] [amount|1k|1m]', 'error');
+                        } else {
+                            const transferred = refillAgent(agent.id, amount);
+                            if (transferred > 0) {
+                                print(`TRANSFERRED ${formatComputeUnits(transferred)} CU TO ${agent.name}.`, 'system');
+                            } else {
+                                print(`INSUFFICIENT FUNDS OR AGENT AT CAPACITY. (Balance: ${formatComputeUnits(computeUnits)})`, 'error');
+                            }
                         }
                     }
                 } else {
@@ -816,7 +898,7 @@ export const useTerminal = () => {
                         const agentLabel = agent.nickname ? `${agent.nickname} // ${agent.name}` : agent.name;
                         print(`${agentLabel.padEnd(22)} | BUDGET: ${agent.budget.toFixed(1)} / ${agent.maxBudget} | REFILL: ${agent.refillRate}/tick`);
                     });
-                    print('\nUsage: wallets --pin | wallets refill [agent] [amount] | wallets set-budget [agent] [amount] | wallets set-refill [agent] [amount]');
+                    print('\nUsage: wallets --pin | wallets refill [agent|all] [amount|1k|1m] | wallets set-budget [agent] [amount|1k|1m] | wallets set-refill [agent] [amount|1k|1m]');
                 }
                 break;
             }
