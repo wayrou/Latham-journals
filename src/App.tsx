@@ -8,6 +8,7 @@ import Dungeon from './pages/Dungeon';
 import { GameStateProvider, useGameState } from './context/GameStateContext';
 import LockScreen from './components/LockScreen';
 import BootSequence from './components/BootSequence';
+import StartupSplash from './components/StartupSplash';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -74,16 +75,23 @@ class AppErrorBoundary extends React.Component<React.PropsWithChildren, ErrorBou
 
 const RootApp: React.FC = () => {
   const { isSystemUnlocked } = useGameState();
-  const [hasBooted, setHasBooted] = useState(false);
+  const [startupPhase, setStartupPhase] = useState<'splash' | 'boot' | 'ready'>('splash');
+  const handleSplashComplete = React.useCallback(() => {
+    setStartupPhase('boot');
+  }, []);
   const handleBootComplete = React.useCallback(() => {
-    setHasBooted(true);
+    setStartupPhase('ready');
   }, []);
 
   if (!isSystemUnlocked) {
     return <LockScreen />;
   }
 
-  if (!hasBooted) {
+  if (startupPhase === 'splash') {
+    return <StartupSplash onComplete={handleSplashComplete} />;
+  }
+
+  if (startupPhase === 'boot') {
     return <BootSequence onComplete={handleBootComplete} />;
   }
 
